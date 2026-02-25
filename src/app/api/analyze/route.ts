@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAIService } from "@/lib/ai";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { calculateGradeNumber, inferSubjectFromName } from "@/lib/knowledge-tags";
+import { calculateGradeNumber } from "@/lib/knowledge-tags";
 import { prisma } from "@/lib/prisma";
 import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
         // 先获取用户年级信息，用于动态生成 AI prompt 中的标签列表
         let userGrade: 7 | 8 | 9 | 10 | 11 | 12 | null = null;
-        let subjectName: 'math' | 'physics' | 'chemistry' | 'biology' | 'english' | 'chinese' | 'history' | 'geography' | 'politics' | null = null;
+        let subjectName: 'math' | 'physics' | 'chemistry' | 'biology' | 'english' | 'chinese' | 'history' | 'geography' | 'politics' | null = 'math';
 
         if (session?.user?.email) {
             try {
@@ -64,18 +64,7 @@ export async function POST(req: Request) {
                     logger.debug({ userGrade }, 'Calculated user grade');
                 }
 
-                // 获取错题本信息以推断学科
-                if (subjectId) {
-                    const subject = await prisma.subject.findUnique({
-                        where: { id: subjectId },
-                        select: { name: true }
-                    });
-
-                    if (subject) {
-                        subjectName = inferSubjectFromName(subject.name);
-                        logger.debug({ subjectName, subjectDisplayName: subject.name }, 'Inferred subject');
-                    }
-                }
+                logger.debug({ subjectName }, 'Subject locked to math');
             } catch (error) {
                 logger.error({ error }, 'Error fetching user/subject info');
                 // 继续执行，不传递年级参数（会返回所有年级的标签）

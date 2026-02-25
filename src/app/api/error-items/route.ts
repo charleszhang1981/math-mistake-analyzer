@@ -3,12 +3,42 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { calculateGrade } from "@/lib/grade-calculator";
-import { unauthorized, internalError } from "@/lib/api-errors";
+import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
-import { inferSubjectFromName } from "@/lib/knowledge-tags";
 
 const logger = createLogger('api:error-items');
+const MATH_NOTEBOOK_NAME = "Math";
+
+async function ensureMathNotebook(userId: string) {
+    const existingMath = await prisma.subject.findFirst({
+        where: {
+            userId,
+            OR: [
+                { name: MATH_NOTEBOOK_NAME },
+                { name: "数学" },
+                { name: "math" },
+            ],
+        },
+    });
+
+    if (existingMath) {
+        if (existingMath.name !== MATH_NOTEBOOK_NAME) {
+            return prisma.subject.update({
+                where: { id: existingMath.id },
+                data: { name: MATH_NOTEBOOK_NAME },
+            });
+        }
+        return existingMath;
+    }
+
+    return prisma.subject.create({
+        data: {
+            name: MATH_NOTEBOOK_NAME,
+            userId,
+        },
+    });
+}
 
 export async function POST(req: Request) {
     logger.info('POST /api/error-items called');
@@ -23,7 +53,11 @@ export async function POST(req: Request) {
             analysis,
             knowledgePoints,
             originalImageUrl,
-            subjectId,
+            rawImageKey,
+            cropImageKey,
+            structuredJson,
+            checkerJson,
+            diagnosisJson,
             gradeSemester,
             paperLevel,
         } = body;
@@ -37,7 +71,8 @@ export async function POST(req: Request) {
             knowledgePointsCount: Array.isArray(knowledgePoints) ? knowledgePoints.length : 0,
             hasImage: !!originalImageUrl,
             imageSize: originalImageUrl?.length || 0,
-            subjectId,
+            rawImageKey,
+            cropImageKey,
             gradeSemester,
             paperLevel,
         }, 'Request parameters received');
@@ -56,6 +91,10 @@ export async function POST(req: Request) {
         if (!user) {
             logger.warn({ sessionEmail: session?.user?.email }, 'User not found in DB');
             return unauthorized("No user found in DB");
+        }
+
+        if (!originalImageUrl && !rawImageKey) {
+            return badRequest("Missing image reference");
         }
 
         // ========== 去重检查：2秒内同一用户提交相同题目视为重复 ==========
@@ -103,10 +142,10 @@ export async function POST(req: Request) {
         const tagNames: string[] = Array.isArray(knowledgePoints) ? knowledgePoints : [];
         const tagConnections: { id: string }[] = [];
 
-        // 推断学科
-        const subject = await prisma.subject.findUnique({ where: { id: subjectId || '' } });
-        const subjectKey = inferSubjectFromName(subject?.name ?? null) || 'other';
-        logger.debug({ subjectId, subjectName: subject?.name, subjectKey }, 'Subject inferred');
+        // MVP: 学科锁定为 Math
+        const mathNotebook = await ensureMathNotebook(user.id);
+        const subjectKey = 'math';
+        logger.debug({ subjectId: mathNotebook.id, subjectName: mathNotebook.name, subjectKey }, 'Subject locked to math');
 
         // 处理每个标签
         for (const tagName of tagNames) {
@@ -153,12 +192,17 @@ export async function POST(req: Request) {
             const errorItem = await prisma.errorItem.create({
                 data: {
                     userId: user.id,
-                    subjectId: subjectId || undefined,
-                    originalImageUrl,
+                    subjectId: mathNotebook.id,
+                    originalImageUrl: originalImageUrl || `storage:${rawImageKey}`,
+                    rawImageKey: rawImageKey || undefined,
+                    cropImageKey: cropImageKey || undefined,
                     questionText,
                     answerText,
                     analysis,
                     knowledgePoints: JSON.stringify(tagNames),
+                    structuredJson: structuredJson ?? undefined,
+                    checkerJson: checkerJson ?? undefined,
+                    diagnosisJson: diagnosisJson ?? undefined,
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     masteryLevel: 0,
@@ -177,7 +221,7 @@ export async function POST(req: Request) {
             logger.error({
                 error: dbError,
                 userId: user.id,
-                subjectId,
+                subjectId: mathNotebook.id,
                 tagConnectionsCount: tagConnections.length
             }, 'Database error creating ErrorItem');
             throw dbError;

@@ -2,10 +2,78 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, badRequest, conflict, internalError } from "@/lib/api-errors";
+import { unauthorized, badRequest, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:notebooks');
+const MATH_NOTEBOOK_NAME = "Math";
+
+async function ensureMathNotebook(userId: string) {
+    let notebook = await prisma.subject.findFirst({
+        where: {
+            userId,
+            name: MATH_NOTEBOOK_NAME,
+        },
+        include: {
+            _count: {
+                select: {
+                    errorItems: true,
+                },
+            },
+        },
+    });
+
+    if (!notebook) {
+        const legacyNotebook = await prisma.subject.findFirst({
+            where: {
+                userId,
+                OR: [
+                    { name: "数学" },
+                    { name: "math" },
+                ],
+            },
+            include: {
+                _count: {
+                    select: {
+                        errorItems: true,
+                    },
+                },
+            },
+        });
+
+        if (legacyNotebook) {
+            notebook = await prisma.subject.update({
+                where: { id: legacyNotebook.id },
+                data: { name: MATH_NOTEBOOK_NAME },
+                include: {
+                    _count: {
+                        select: {
+                            errorItems: true,
+                        },
+                    },
+                },
+            });
+        }
+    }
+
+    if (!notebook) {
+        notebook = await prisma.subject.create({
+            data: {
+                name: MATH_NOTEBOOK_NAME,
+                userId,
+            },
+            include: {
+                _count: {
+                    select: {
+                        errorItems: true,
+                    },
+                },
+            },
+        });
+    }
+
+    return notebook;
+}
 
 /**
  * GET /api/notebooks
@@ -41,54 +109,8 @@ export async function GET() {
             return unauthorized();
         }
 
-        let notebooks = await prisma.subject.findMany({
-            where: {
-                userId: user.id,
-            },
-            include: {
-                _count: {
-                    select: {
-                        errorItems: true,
-                    },
-                },
-            },
-            orderBy: {
-                createdAt: 'desc',
-            },
-        });
-
-        // If no notebooks exist, create default ones
-        if (notebooks.length === 0) {
-            const defaultSubjects = ["数学", "英语"];
-
-            await Promise.all(defaultSubjects.map(name =>
-                prisma.subject.create({
-                    data: {
-                        name,
-                        userId: user!.id,
-                    }
-                })
-            ));
-
-            // Fetch again
-            notebooks = await prisma.subject.findMany({
-                where: {
-                    userId: user.id,
-                },
-                include: {
-                    _count: {
-                        select: {
-                            errorItems: true,
-                        },
-                    },
-                },
-                orderBy: {
-                    createdAt: 'desc',
-                },
-            });
-        }
-
-        return NextResponse.json(notebooks);
+        const mathNotebook = await ensureMathNotebook(user.id);
+        return NextResponse.json([mathNotebook]);
     } catch (error) {
         logger.error({ error }, 'Error fetching notebooks');
         return internalError("Failed to fetch notebooks");
@@ -129,42 +151,8 @@ export async function POST(req: Request) {
             return unauthorized();
         }
 
-        const body = await req.json();
-        const { name } = body;
-
-        if (!name || !name.trim()) {
-            return badRequest("Notebook name is required");
-        }
-
-        // 检查是否已存在同名错题本
-        const existing = await prisma.subject.findUnique({
-            where: {
-                name_userId: {
-                    name: name.trim(),
-                    userId: user.id,
-                },
-            },
-        });
-
-        if (existing) {
-            return conflict("Notebook with this name already exists");
-        }
-
-        const notebook = await prisma.subject.create({
-            data: {
-                name: name.trim(),
-                userId: user.id,
-            },
-            include: {
-                _count: {
-                    select: {
-                        errorItems: true,
-                    },
-                },
-            },
-        });
-
-        return NextResponse.json(notebook, { status: 201 });
+        await req.json();
+        return badRequest("Subject is locked to Math in MVP");
     } catch (error) {
         logger.error({ error }, 'Error creating notebook');
         return internalError("Failed to create notebook");

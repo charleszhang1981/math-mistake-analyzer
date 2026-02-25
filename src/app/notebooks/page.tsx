@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
-import { Plus, House } from "lucide-react";
+import { House } from "lucide-react";
 import Link from "next/link";
 import { NotebookCard } from "@/components/notebook-card";
-import { CreateNotebookDialog } from "@/components/create-notebook-dialog";
 
 import { Notebook } from "@/types/api";
 import { apiClient } from "@/lib/api-client";
@@ -21,7 +20,6 @@ export default function NotebooksPage() {
     const { t } = useLanguage(); // Use hook
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
     const [loading, setLoading] = useState(true);
-    const [dialogOpen, setDialogOpen] = useState(false);
 
     useEffect(() => {
         fetchNotebooks();
@@ -35,34 +33,6 @@ export default function NotebooksPage() {
             console.error("Failed to fetch notebooks:", error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleCreate = async (name: string) => {
-        try {
-            await apiClient.post("/api/notebooks", { name });
-            await fetchNotebooks();
-        } catch (error: any) {
-            console.error(error);
-            const message = error.data?.message || t.notebooks?.createError || "Failed to create";
-            alert(message);
-        }
-    };
-
-    const handleDelete = async (id: string, errorCount: number, name: string) => {
-        if (errorCount > 0) {
-            alert(t.notebooks?.deleteNotEmpty || "Please clear all items in this notebook first.");
-            return;
-        }
-        if (!confirm((t.notebooks?.deleteConfirm || "Are you sure?").replace("{name}", name))) return;
-
-        try {
-            await apiClient.delete(`/api/notebooks/${id}`);
-            await fetchNotebooks();
-        } catch (error: any) {
-            console.error(error);
-            const message = error.data?.message || t.notebooks?.deleteError || "Failed to delete";
-            alert(message);
         }
     };
 
@@ -90,13 +60,6 @@ export default function NotebooksPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                        <Button onClick={() => setDialogOpen(true)} size="sm" className="hidden sm:flex">
-                            <Plus className="mr-2 h-4 w-4" />
-                            {t.notebooks?.create || "New Notebook"}
-                        </Button>
-                        <Button onClick={() => setDialogOpen(true)} size="icon" className="sm:hidden">
-                            <Plus className="h-4 w-4" />
-                        </Button>
                         <Link href="/">
                             <Button variant="ghost" size="icon">
                                 <House className="h-5 w-5" />
@@ -108,12 +71,8 @@ export default function NotebooksPage() {
                 {notebooks.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed rounded-lg">
                         <p className="text-muted-foreground mb-4">
-                            {t.notebooks?.empty || "No notebooks yet."}
+                            {t.notebooks?.empty || "No notebooks found."}
                         </p>
-                        <Button onClick={() => setDialogOpen(true)}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            {t.notebooks?.createFirst || "Create Notebook"}
-                        </Button>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -124,19 +83,11 @@ export default function NotebooksPage() {
                                 name={notebook.name}
                                 errorCount={notebook._count?.errorItems || 0}
                                 onClick={() => handleNotebookClick(notebook.id)}
-                                onDelete={() => handleDelete(notebook.id, notebook._count?.errorItems || 0, notebook.name)}
                                 itemLabel={t.notebooks?.items || "items"}
                             />
                         ))}
                     </div>
                 )}
-
-                <CreateNotebookDialog
-                    key={t.common.loading} // Force re-render when language changes
-                    open={dialogOpen}
-                    onOpenChange={setDialogOpen}
-                    onCreate={handleCreate}
-                />
             </div >
         </main >
     );

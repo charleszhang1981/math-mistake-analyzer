@@ -25,15 +25,7 @@ interface TagTreeNode {
 
 // 学科配置
 const SUBJECTS = [
-    { key: 'math', name: '数学' },
-    { key: 'english', name: '英语' },
-    { key: 'physics', name: '物理' },
-    { key: 'chemistry', name: '化学' },
-    { key: 'biology', name: '生物' },
-    { key: 'chinese', name: '语文' },
-    { key: 'history', name: '历史' },
-    { key: 'geography', name: '地理' },
-    { key: 'politics', name: '政治' },
+    { key: 'math', name: 'Math' },
 ] as const;
 
 type SubjectKey = typeof SUBJECTS[number]['key'];
@@ -46,14 +38,6 @@ export default function TagsPage() {
     // 标签数据 (按学科) - null 表示未加载，[] 表示已加载但无数据
     const [tagsBySubject, setTagsBySubject] = useState<Record<SubjectKey, TagTreeNode[] | null>>({
         math: null,
-        english: null,
-        physics: null,
-        chemistry: null,
-        biology: null,
-        chinese: null,
-        history: null,
-        geography: null,
-        politics: null,
     });
 
     // 自定义标签 (扁平列表，仅用于显示)

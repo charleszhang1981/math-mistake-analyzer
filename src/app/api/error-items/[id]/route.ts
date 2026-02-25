@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import { createSignedObjectUrl } from "@/lib/supabase-storage";
 
 const logger = createLogger('api:error-items:id');
 
@@ -51,7 +52,19 @@ export async function GET(
             return forbidden("Not authorized to access this item");
         }
 
-        return NextResponse.json(errorItem);
+        const responseItem = { ...errorItem } as typeof errorItem;
+        if (errorItem.rawImageKey) {
+            try {
+                responseItem.originalImageUrl = await createSignedObjectUrl({
+                    key: errorItem.rawImageKey,
+                    expiresIn: 1800,
+                });
+            } catch (signError) {
+                logger.warn({ id, signError }, 'Failed to sign raw image URL, fallback to stored originalImageUrl');
+            }
+        }
+
+        return NextResponse.json(responseItem);
     } catch (error) {
         logger.error({ error }, 'Error fetching item');
         return internalError("Failed to fetch error item");
@@ -82,7 +95,19 @@ export async function PUT(
         }
 
         const body = await req.json();
-        const { knowledgePoints, gradeSemester, paperLevel, questionText, answerText, analysis } = body;
+        const {
+            knowledgePoints,
+            gradeSemester,
+            paperLevel,
+            questionText,
+            answerText,
+            analysis,
+            rawImageKey,
+            cropImageKey,
+            structuredJson,
+            checkerJson,
+            diagnosisJson,
+        } = body;
 
         const errorItem = await prisma.errorItem.findUnique({
             where: { id },
@@ -104,6 +129,11 @@ export async function PUT(
         if (questionText !== undefined) updateData.questionText = questionText;
         if (answerText !== undefined) updateData.answerText = answerText;
         if (analysis !== undefined) updateData.analysis = analysis;
+        if (rawImageKey !== undefined) updateData.rawImageKey = rawImageKey || null;
+        if (cropImageKey !== undefined) updateData.cropImageKey = cropImageKey || null;
+        if (structuredJson !== undefined) updateData.structuredJson = structuredJson;
+        if (checkerJson !== undefined) updateData.checkerJson = checkerJson;
+        if (diagnosisJson !== undefined) updateData.diagnosisJson = diagnosisJson;
 
         // 处理 knowledgePoints (标签)
         if (knowledgePoints !== undefined) {
@@ -114,13 +144,7 @@ export async function PUT(
                     : [];
 
             // 推断学科
-            const subjectKey = errorItem.subject?.name?.toLowerCase().includes('math') ||
-                errorItem.subject?.name?.includes('数学')
-                ? 'math'
-                : errorItem.subject?.name?.toLowerCase().includes('english') ||
-                    errorItem.subject?.name?.includes('英语')
-                    ? 'english'
-                    : 'other';
+            const subjectKey = 'math';
 
             const tagConnections: { id: string }[] = [];
             for (const tagName of tagNames) {

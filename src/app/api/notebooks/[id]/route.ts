@@ -6,6 +6,12 @@ import { unauthorized, forbidden, notFound, badRequest, internalError } from "@/
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:notebooks:id');
+const MATH_NOTEBOOK_NAME = "Math";
+
+function isMathNotebookName(name: string) {
+    const normalized = name.trim().toLowerCase();
+    return normalized === 'math' || normalized === '数学';
+}
 
 /**
  * GET /api/notebooks/[id]
@@ -62,6 +68,10 @@ export async function GET(
 
         if (notebook.userId !== user.id) {
             return forbidden("Not authorized to access this notebook");
+        }
+
+        if (!isMathNotebookName(notebook.name)) {
+            return notFound("Notebook not found");
         }
 
         return NextResponse.json(notebook);
@@ -121,11 +131,15 @@ export async function PUT(
             return forbidden("Not authorized to update this notebook");
         }
 
+        if (!isMathNotebookName(notebook.name)) {
+            return notFound("Notebook not found");
+        }
+
         const body = await req.json();
         const { name } = body;
 
-        if (!name || !name.trim()) {
-            return badRequest("Notebook name is required");
+        if (!name || !name.trim() || name.trim() !== MATH_NOTEBOOK_NAME) {
+            return badRequest("Subject is locked to Math in MVP");
         }
 
         const updated = await prisma.subject.update({
@@ -206,16 +220,16 @@ export async function DELETE(
             return forbidden("Not authorized to delete this notebook");
         }
 
+        if (!isMathNotebookName(notebook.name)) {
+            return notFound("Notebook not found");
+        }
+
         // 检查是否有错题
         if (notebook._count.errorItems > 0) {
             return badRequest("Cannot delete notebook with error items. Please move or delete all items first.");
         }
 
-        await prisma.subject.delete({
-            where: { id },
-        });
-
-        return NextResponse.json({ message: "Notebook deleted successfully" });
+        return badRequest("Subject is locked to Math in MVP");
     } catch (error) {
         logger.error({ error }, 'Error deleting notebook');
         return internalError("Failed to delete notebook");

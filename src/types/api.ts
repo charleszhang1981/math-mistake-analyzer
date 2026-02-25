@@ -51,11 +51,16 @@ export interface ErrorItem {
     subjectId?: string | null;
     subject?: Notebook | null;
     originalImageUrl: string;
+    rawImageKey?: string | null;
+    cropImageKey?: string | null;
     ocrText?: string | null;
     questionText?: string | null;
     answerText?: string | null;
     analysis?: string | null;
     knowledgePoints?: string | null;
+    structuredJson?: unknown;
+    checkerJson?: unknown;
+    diagnosisJson?: unknown;
 
     source?: string | null;
     errorType?: string | null;
@@ -73,6 +78,11 @@ export interface ErrorItem {
 // For creation/updates
 export interface CreateErrorItemRequest extends ParsedQuestion {
     originalImageUrl: string;
+    rawImageKey?: string;
+    cropImageKey?: string;
+    structuredJson?: unknown;
+    checkerJson?: unknown;
+    diagnosisJson?: unknown;
     subjectId?: string;
     gradeSemester?: string;
     paperLevel?: string;

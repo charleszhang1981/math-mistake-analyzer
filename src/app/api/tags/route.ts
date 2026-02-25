@@ -11,6 +11,7 @@ import { authOptions } from '@/lib/auth';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('api:tags');
+const MATH_SUBJECT_KEY = 'math';
 
 interface TagTreeNode {
     id: string;
@@ -70,6 +71,10 @@ export async function GET(request: NextRequest) {
 
         if (!subject) {
             return NextResponse.json({ error: 'Subject is required' }, { status: 400 });
+        }
+
+        if (subject !== MATH_SUBJECT_KEY) {
+            return NextResponse.json({ error: 'Subject is locked to math in MVP' }, { status: 400 });
         }
 
         // 获取系统标签 + 当前用户的自定义标签
@@ -144,12 +149,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Name and subject are required' }, { status: 400 });
         }
 
+        if (subject !== MATH_SUBJECT_KEY) {
+            return NextResponse.json({ error: 'Subject is locked to math in MVP' }, { status: 400 });
+        }
+
         // 检查是否已存在 (在同一父节点下)
         // 注意：Prisma对于可选字段的查询需要特殊处理。如果是null，必须显式指定。
         const existing = await prisma.knowledgeTag.findFirst({
             where: {
                 name: name.trim(),
-                subject,
+                subject: MATH_SUBJECT_KEY,
                 userId: session.user.id,
                 parentId: parentId || null,
             },
@@ -163,7 +172,7 @@ export async function POST(request: NextRequest) {
         const tag = await prisma.knowledgeTag.create({
             data: {
                 name: name.trim(),
-                subject,
+                subject: MATH_SUBJECT_KEY,
                 parentId: parentId || null,
                 isSystem: false,
                 userId: session.user.id,

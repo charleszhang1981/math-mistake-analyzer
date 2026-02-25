@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:tags:suggestions');
+const MATH_SUBJECT_KEY = 'math';
 
 /**
  * GET /api/tags/suggestions
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
         const session = await getServerSession(authOptions);
         const { searchParams } = new URL(req.url);
         const query = searchParams.get("q")?.toLowerCase() || "";
-        const subject = searchParams.get("subject") || undefined;
+        const subject = MATH_SUBJECT_KEY;
         const stage = searchParams.get("stage") || undefined;
 
         let user;
