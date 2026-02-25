@@ -185,6 +185,7 @@ export default function AddErrorPage() {
 
                 // ApiError 的结构：error.data.message 包含后端返回的错误类型
                 const backendErrorType = error?.data?.message;
+                const retryAfterSeconds = Number(error?.data?.details?.retryAfterSeconds);
 
                 if (backendErrorType && typeof backendErrorType === 'string') {
                     // 检查是否是已知的 AI 错误类型
@@ -193,6 +194,9 @@ export default function AddErrorPage() {
                         const mappedError = (t.errors as any)[backendErrorType];
                         if (typeof mappedError === 'string') {
                             errorMessage = mappedError;
+                            if (backendErrorType === 'AI_QUOTA_EXCEEDED' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+                                errorMessage = `${errorMessage} (retry in ${retryAfterSeconds}s)`;
+                            }
                             frontendLogger.info('[AddError]', `Matched error type: ${backendErrorType}`, {
                                 errorMessage
                             });
