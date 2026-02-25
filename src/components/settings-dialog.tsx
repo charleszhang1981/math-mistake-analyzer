@@ -93,6 +93,7 @@ export function SettingsDialog() {
     const [profileSaving, setProfileSaving] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const isConfigManagedByEnv = true;
 
     const router = useRouter();
 
@@ -170,6 +171,11 @@ export function SettingsDialog() {
     };
 
     const handleSaveSettings = async () => {
+        if (isConfigManagedByEnv) {
+            alert("AI settings are managed by environment variables (C1).");
+            return;
+        }
+
         // 验证 OpenAI 实例必填字段
         const openaiValidationError = validateOpenAIInstances();
         if (openaiValidationError) {
@@ -615,9 +621,9 @@ export function SettingsDialog() {
                                 </p>
                             </div>
                         </div>
-                        <Button onClick={handleSaveSettings} disabled={saving} className="w-full">
+                        <Button onClick={handleSaveSettings} disabled={saving || isConfigManagedByEnv} className="w-full">
                             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {t.settings?.save || "Save Settings"}
+                            {isConfigManagedByEnv ? "ENV Managed" : (t.settings?.save || "Save Settings")}
                         </Button>
                     </TabsContent>
 
@@ -1015,9 +1021,9 @@ export function SettingsDialog() {
                                             )}
                                             {testing ? (t.settings?.ai?.testing || "测试中...") : (t.settings?.ai?.testConnection || "测试连接")}
                                         </Button>
-                                        <Button onClick={handleSaveSettings} disabled={saving || testing} className="flex-1">
+                                        <Button onClick={handleSaveSettings} disabled={saving || testing || isConfigManagedByEnv} className="flex-1">
                                             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            {t.settings?.ai?.save || "Save AI Settings"}
+                                            {isConfigManagedByEnv ? "ENV Managed" : (t.settings?.ai?.save || "Save AI Settings")}
                                         </Button>
                                     </div>
 
@@ -1074,9 +1080,9 @@ export function SettingsDialog() {
                     {/* Prompts Tab */}
                     <TabsContent value="prompts" className="space-y-4 py-4">
                         <PromptSettings config={config} onUpdate={updatePrompts} />
-                        <Button onClick={handleSaveSettings} disabled={saving} className="w-full">
+                        <Button onClick={handleSaveSettings} disabled={saving || isConfigManagedByEnv} className="w-full">
                             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {t.settings?.prompts?.save || "Save Prompt Settings"}
+                            {isConfigManagedByEnv ? "ENV Managed" : (t.settings?.prompts?.save || "Save Prompt Settings")}
                         </Button>
                     </TabsContent>
 

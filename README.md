@@ -38,7 +38,7 @@
 
 - **框架**: [Next.js 16](https://nextjs.org/) (App Router)
 - **UI 库**: [React 19](https://react.dev/)
-- **数据库**: [SQLite](https://www.sqlite.org/) (via [Prisma](https://www.prisma.io/))
+- **数据库**: [PostgreSQL](https://www.postgresql.org/) (Supabase, via [Prisma](https://www.prisma.io/))
 - **样式**: [Tailwind CSS v4](https://tailwindcss.com/) + [Shadcn UI](https://ui.shadcn.com/)
 - **AI**: Google Gemini API / OpenAI API / Azure OpenAI
 - **认证**: [NextAuth.js](https://next-auth.js.org/)
@@ -114,7 +114,11 @@ cp .env.example .env
 
 | 环境变量 | 描述 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | 数据库连接地址 | `file:./dev.db` | SQLite 数据库路径 |
+| `DATABASE_URL` | 数据库连接地址 | 无 | Supabase Postgres 连接串 |
+| `SUPABASE_URL` | Supabase 项目 URL | 无 | 用于 Storage 上传/签名 |
+| `SUPABASE_ANON_KEY` | Supabase 匿名 Key | 无 | 前端可用（如需） |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服务端 Key | 无 | 仅服务端使用（Storage 上传/签名） |
+| `SUPABASE_STORAGE_BUCKET` | Storage bucket 名称 | `wrongbook` | 建议 private bucket |
 | `NEXTAUTH_SECRET` | Auth 密钥 | 无 | 用于加密 Session，生产环境建议设置,可以使用 openssl rand -base64 32 生成一个随机字符串作为密钥 |
 | `NEXTAUTH_URL` | 访问地址 | `http://your-domain-name:3000` | 部署后的访问地址 |
 | `AUTH_TRUST_HOST` | 信任主机头 | `true` | 设置为 `true` 时自动推断 URL，适合 Docker/PaaS |
@@ -164,16 +168,16 @@ npm run dev
 
 ## ⚙️ AI 模型配置
 
-本项目支持动态配置 AI 模型，无需重启服务器。
+本项目 AI 配置采用环境变量管理（C1），修改后需重启/重部署生效。
 
 1.  **进入设置**：点击首页右上角的设置图标。
 2.  **选择提供商**：支持 Google Gemini, OpenAI (或兼容 API) 和 **Azure OpenAI**。
 3.  **填写参数**：
     *   **通用参数**: API Key, Base URL (或 Endpoint), Model Name (或 Deployment Name)。
     *   **Azure 特有**: Deployment Name (部署名称), API Version (API 版本)。
-4.  **保存生效**：点击保存后即刻生效。
+4.  **保存方式**：通过 `.env` / 平台环境变量配置（设置页不落盘保存）。
 
-> **注意**：网页配置会保存到 `config/app-config.json` 文件中，该文件的优先级高于 `.env` 环境变量。
+> **注意**：本项目不再写入 `config/app-config.json`，配置只从环境变量读取。
 
 ## 🛠️ 实用脚本
 

@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -86,6 +86,8 @@ model ErrorItem {
   subject        Subject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   
   originalImageUrl String
+  rawImageKey      String?
+  cropImageKey     String?
   ocrText          String?
   
   // AI Analysis
@@ -93,6 +95,9 @@ model ErrorItem {
   answerText       String? // AI provided answer
   analysis         String? // AI analysis/explanation
   knowledgePoints  String? // [DEPRECATED] JSON string - kept for migration only
+  structuredJson   Json?
+  checkerJson      Json?
+  diagnosisJson    Json?
   
   // New: many-to-many relation with KnowledgeTag
   tags             KnowledgeTag[]
