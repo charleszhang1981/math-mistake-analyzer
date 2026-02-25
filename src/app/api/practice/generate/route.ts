@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { getAIService } from "@/lib/ai";
-import { notFound, internalError } from "@/lib/api-errors";
+import { notFound, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { normalizeAIError } from "@/lib/ai/error-normalizer";
 
 const logger = createLogger('api:practice:generate');
 
@@ -46,7 +47,15 @@ export async function POST(req: Request) {
         return NextResponse.json(similarQuestion);
     } catch (error) {
         logger.error({ error }, 'Error generating practice');
-        const errorMessage = error instanceof Error ? error.message : "Failed to generate practice question";
-        return internalError(errorMessage);
+        const normalized = normalizeAIError(error);
+        const details: Record<string, unknown> = {
+            rawMessage: normalized.message,
+        };
+
+        if (normalized.retryAfterSeconds) {
+            details.retryAfterSeconds = normalized.retryAfterSeconds;
+        }
+
+        return createErrorResponse(normalized.code, normalized.status, ErrorCode.AI_ERROR, details);
     }
 }

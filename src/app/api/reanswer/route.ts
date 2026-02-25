@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { normalizeAIError } from "@/lib/ai/error-normalizer";
 
 const logger = createLogger('api:reanswer');
 
@@ -45,16 +46,15 @@ export async function POST(req: Request) {
     } catch (error: any) {
         logger.error({ error: error.message, stack: error.stack }, 'Reanswer error occurred');
 
-        let errorMessage = error.message || "Failed to reanswer question";
+        const normalized = normalizeAIError(error);
+        const details: Record<string, unknown> = {
+            rawMessage: normalized.message,
+        };
 
-        if (error.message?.includes('AI_AUTH_ERROR')) {
-            errorMessage = 'AI_AUTH_ERROR';
-        } else if (error.message === 'AI_CONNECTION_FAILED') {
-            errorMessage = 'AI_CONNECTION_FAILED';
-        } else if (error.message === 'AI_RESPONSE_ERROR') {
-            errorMessage = 'AI_RESPONSE_ERROR';
+        if (normalized.retryAfterSeconds) {
+            details.retryAfterSeconds = normalized.retryAfterSeconds;
         }
 
-        return createErrorResponse(errorMessage, 500, ErrorCode.AI_ERROR);
+        return createErrorResponse(normalized.code, normalized.status, ErrorCode.AI_ERROR, details);
     }
 }

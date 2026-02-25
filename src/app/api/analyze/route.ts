@@ -4,8 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { calculateGradeNumber, inferSubjectFromName } from "@/lib/knowledge-tags";
 import { prisma } from "@/lib/prisma";
-import { badRequest, internalError, createErrorResponse, ErrorCode } from "@/lib/api-errors";
+import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { normalizeAIError } from "@/lib/ai/error-normalizer";
 
 const logger = createLogger('api:analyze');
 
@@ -120,32 +121,15 @@ export async function POST(req: Request) {
             stack: error.stack
         }, 'Analysis error occurred');
 
-        // 返回具体的错误类型，便于前端显示详细提示
-        let errorMessage = error.message || "Failed to analyze image";
+        const normalized = normalizeAIError(error);
+        const details: Record<string, unknown> = {
+            rawMessage: normalized.message,
+        };
 
-        // 识别特定错误类型
-        if (error.message && (
-            error.message === 'AI_CONNECTION_FAILED' ||
-            error.message === 'AI_RESPONSE_ERROR' ||
-            error.message.includes('AI_AUTH_ERROR') ||
-            error.message === 'AI_TIMEOUT_ERROR' ||
-            error.message === 'AI_QUOTA_EXCEEDED' ||
-            error.message === 'AI_PERMISSION_DENIED' ||
-            error.message === 'AI_NOT_FOUND' ||
-            error.message === 'AI_SERVICE_UNAVAILABLE' ||
-            error.message === 'AI_UNKNOWN_ERROR'
-        )) {
-            // 直接传递 AI Provider 定义的错误类型 (如果是 AI_AUTH_ERROR，提取出来)
-            if (error.message.includes('AI_AUTH_ERROR')) {
-                errorMessage = 'AI_AUTH_ERROR';
-            } else {
-                errorMessage = error.message;
-            }
-        } else if (error.message?.includes('Zod') || error.message?.includes('validate')) {
-            // Zod 验证错误
-            errorMessage = 'AI_RESPONSE_ERROR';
+        if (normalized.retryAfterSeconds) {
+            details.retryAfterSeconds = normalized.retryAfterSeconds;
         }
 
-        return createErrorResponse(errorMessage, 500, ErrorCode.AI_ERROR, error.message);
+        return createErrorResponse(normalized.code, normalized.status, ErrorCode.AI_ERROR, details);
     }
 }

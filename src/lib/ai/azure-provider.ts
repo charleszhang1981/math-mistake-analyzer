@@ -391,7 +391,7 @@ Question: ${questionText}`;
                 throw new Error("AI_TIMEOUT_ERROR");
             }
             // 配额/频率限制错误
-            if (msg.includes('quota') || msg.includes('额度') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many')) {
+            if (msg.includes('quota') || msg.includes('额度') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many') || msg.includes('exceeded retry limit')) {
                 throw new Error("AI_QUOTA_EXCEEDED");
             }
             // 权限/403 错误

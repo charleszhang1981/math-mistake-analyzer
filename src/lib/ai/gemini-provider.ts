@@ -65,13 +65,21 @@ export class GeminiProvider implements AIService {
                     msg.includes('enotfound') ||  // DNS resolution failed
                     msg.includes('econnreset') ||
                     msg.includes('econnrefused') ||  // Connection refused
-                    msg.includes('unavailable');
+                    msg.includes('unavailable') ||
+                    msg.includes('429') ||
+                    msg.includes('rate limit') ||
+                    msg.includes('too many') ||
+                    msg.includes('exceeded retry limit');
 
                 if (!isRetryable || attempt === maxRetries) {
                     throw error;
                 }
 
-                const delay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff: 1s, 2s, 4s
+                // Apply slower backoff for rate-limit errors to reduce retry storms.
+                const isRateLimit = msg.includes('429') || msg.includes('rate limit') || msg.includes('too many');
+                const baseDelay = isRateLimit ? 2000 : 1000;
+                const jitter = Math.floor(Math.random() * 300);
+                const delay = Math.pow(2, attempt - 1) * baseDelay + jitter;
                 logger.warn({ attempt, maxRetries, error: msg, nextRetryDelayMs: delay }, 'Gemini operation failed, retrying...');
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
@@ -344,7 +352,7 @@ export class GeminiProvider implements AIService {
                 throw new Error("AI_TIMEOUT_ERROR");
             }
             // 配额/频率限制错误
-            if (msg.includes('quota') || msg.includes('额度') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many')) {
+            if (msg.includes('quota') || msg.includes('额度') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many') || msg.includes('exceeded retry limit')) {
                 throw new Error("AI_QUOTA_EXCEEDED");
             }
             // 权限/403 错误
