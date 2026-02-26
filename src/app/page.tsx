@@ -8,7 +8,7 @@ import { CorrectionEditor } from "@/components/correction-editor";
 import { ImageCropper } from "@/components/image-cropper";
 import { UserWelcome } from "@/components/user-welcome";
 import { apiClient } from "@/lib/api-client";
-import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
+import { AnalyzeResponse, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
@@ -33,8 +33,6 @@ function HomeContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const initialNotebookId = searchParams.get("notebook");
-    const [notebooks, setNotebooks] = useState<{ id: string; name: string }[]>([]);
-    const [autoSelectedNotebookId, setAutoSelectedNotebookId] = useState<string | null>(null);
 
     const [config, setConfig] = useState<AppConfig | null>(null);
 
@@ -56,11 +54,6 @@ function HomeContent() {
     }, [croppingImage]);
 
     useEffect(() => {
-        // Fetch notebooks for auto-selection
-        apiClient.get<Notebook[]>("/api/notebooks")
-            .then(data => setNotebooks(data))
-            .catch(err => console.error("Failed to fetch notebooks:", err));
-
         // Fetch settings for timeouts
         apiClient.get<AppConfig>("/api/settings")
             .then(data => {
@@ -162,7 +155,7 @@ function HomeContent() {
             const data = await apiClient.post<AnalyzeResponse>("/api/analyze", {
                 imageBase64: base64Image,
                 language: language,
-                subjectId: initialNotebookId || autoSelectedNotebookId || undefined
+                subjectId: initialNotebookId || undefined
             }, { timeout: aiTimeout }); // Use configured timeout
             const apiDuration = Date.now() - apiStartTime;
             frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {
@@ -183,21 +176,8 @@ function HomeContent() {
             setProgress(100);
             frontendLogger.info('[HomeAnalyze]', 'Progress updated to 100%');
 
-            frontendLogger.info('[HomeAnalyze]', 'Step 4/5: Setting parsed data and auto-selecting notebook');
+            frontendLogger.info('[HomeAnalyze]', 'Step 4/5: Setting parsed data');
             const dataSize = JSON.stringify(data).length;
-            // Auto-select notebook based on subject
-            if (data.subject) {
-                const matchedNotebook = notebooks.find(n =>
-                    n.name.includes(data.subject!) || data.subject!.includes(n.name)
-                );
-                if (matchedNotebook) {
-                    setAutoSelectedNotebookId(matchedNotebook.id);
-                    frontendLogger.info('[HomeAnalyze]', 'Auto-selected notebook', {
-                        notebook: matchedNotebook.name,
-                        subject: data.subject
-                    });
-                }
-            }
             const setDataStart = Date.now();
             setParsedData(data);
             const setDataDuration = Date.now() - setDataStart;
@@ -461,7 +441,7 @@ function HomeContent() {
                         onSave={handleSave}
                         onCancel={() => setStep("upload")}
                         imagePreview={currentImage}
-                        initialSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
+                        initialSubjectId={initialNotebookId || undefined}
                         aiTimeout={aiTimeout}
                     />
                 )}
