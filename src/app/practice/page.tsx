@@ -82,6 +82,8 @@ function PracticeContent() {
                 errorMessage = t.errors?.aiResponseError || errorMessage;
             } else if (msg.includes('AI_AUTH_ERROR')) {
                 errorMessage = t.errors?.aiAuth || errorMessage;
+            } else if (msg.includes('PRACTICE_GATING_FAILED')) {
+                errorMessage = "Generated question did not pass validation. Please try regenerate.";
             } else if (msg.includes('AI_UNKNOWN_ERROR')) {
                 errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
             }

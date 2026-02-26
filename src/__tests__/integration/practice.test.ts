@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
     mockAIService: {
         generateSimilarQuestion: vi.fn(),
     },
+    mockBuildCheckerJson: vi.fn(),
+    mockExtractDiagnosisCause: vi.fn(),
     mockSession: {
         user: {
             id: 'user-123',
@@ -38,6 +40,14 @@ vi.mock('@/lib/ai', () => ({
     getAIService: vi.fn(() => mocks.mockAIService),
 }));
 
+vi.mock('@/lib/math-checker', () => ({
+    buildCheckerJson: (...args: any[]) => mocks.mockBuildCheckerJson(...args),
+}));
+
+vi.mock('@/lib/review-scheduler', () => ({
+    extractDiagnosisCause: (...args: any[]) => mocks.mockExtractDiagnosisCause(...args),
+}));
+
 // Mock next-auth
 vi.mock('next-auth', () => ({
     getServerSession: vi.fn(() => Promise.resolve(mocks.mockSession)),
@@ -56,6 +66,17 @@ describe('/api/practice', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession);
+        mocks.mockExtractDiagnosisCause.mockReturnValue('Uncategorized');
+        mocks.mockBuildCheckerJson.mockReturnValue({
+            engine: 'rule_v1',
+            type: 'linear_equation',
+            checkable: true,
+            standard_answer: '5',
+            student_answer: '5',
+            is_correct: true,
+            diff: null,
+            key_intermediates: [],
+        });
     });
 
     describe('POST /api/practice/generate (生成类似题目)', () => {
@@ -262,7 +283,7 @@ describe('/api/practice', () => {
             expect(response.status).toBe(200);
         });
 
-        it('应该从数据库获取正确的学科', async () => {
+        it('应该强制返回数学学科（MVP 锁定）', async () => {
             const errorItemWithPhysics = {
                 ...mockErrorItem,
                 subject: { id: 'physics', name: '物理' },
@@ -289,10 +310,10 @@ describe('/api/practice', () => {
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.subject).toBe('物理'); // 应该从数据库注入
+            expect(data.subject).toBe('数学');
         });
 
-        it('应该处理未知学科为"其他"', async () => {
+        it('应该在未知学科下仍返回数学学科（MVP 锁定）', async () => {
             const errorItemWithUnknownSubject = {
                 ...mockErrorItem,
                 subject: { id: 'unknown', name: '未知学科' },
@@ -318,10 +339,10 @@ describe('/api/practice', () => {
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.subject).toBe('其他');
+            expect(data.subject).toBe('数学');
         });
 
-        it('应该处理没有关联学科的错题', async () => {
+        it('应该在缺失学科关联时仍返回数学学科（MVP 锁定）', async () => {
             const errorItemWithNoSubject = {
                 ...mockErrorItem,
                 subject: null,
@@ -347,7 +368,118 @@ describe('/api/practice', () => {
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.subject).toBe('其他');
+            expect(data.subject).toBe('数学');
+        });
+
+        it('应该在 gating 失败后重试并成功', async () => {
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({
+                ...mockErrorItem,
+                diagnosisJson: {
+                    finalCause: '移项变号错误',
+                    candidates: [],
+                },
+            });
+
+            mocks.mockExtractDiagnosisCause.mockReturnValue('移项变号错误');
+            mocks.mockAIService.generateSimilarQuestion
+                .mockResolvedValueOnce({
+                    questionText: '求解 3x + 1 = 10',
+                    answerText: 'x = 2',
+                    analysis: '第一次生成',
+                    knowledgePoints: ['一元一次方程'],
+                    subject: '数学',
+                })
+                .mockResolvedValueOnce({
+                    questionText: '求解 4x - 4 = 12',
+                    answerText: 'x = 4',
+                    analysis: '第二次生成',
+                    knowledgePoints: ['一元一次方程'],
+                    subject: '数学',
+                });
+
+            mocks.mockBuildCheckerJson
+                .mockReturnValueOnce({
+                    engine: 'rule_v1',
+                    type: 'linear_equation',
+                    checkable: true,
+                    standard_answer: '3',
+                    student_answer: '2',
+                    is_correct: false,
+                    diff: 'Expected x = 3, got x = 2',
+                    key_intermediates: [],
+                })
+                .mockReturnValueOnce({
+                    engine: 'rule_v1',
+                    type: 'linear_equation',
+                    checkable: true,
+                    standard_answer: '4',
+                    student_answer: '4',
+                    is_correct: true,
+                    diff: null,
+                    key_intermediates: [],
+                });
+
+            const request = new Request('http://localhost/api/practice/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    errorItemId: 'error-item-1',
+                    language: 'zh',
+                    difficulty: 'medium',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await GENERATE_POST(request);
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data.questionText).toBe('求解 4x - 4 = 12');
+            expect(mocks.mockAIService.generateSimilarQuestion).toHaveBeenCalledTimes(2);
+            expect(mocks.mockAIService.generateSimilarQuestion).toHaveBeenNthCalledWith(
+                1,
+                expect.stringContaining('Focus mistake cause: 移项变号错误'),
+                expect.arrayContaining(['focus_cause:移项变号错误']),
+                'zh',
+                'medium'
+            );
+        });
+
+        it('应该在超过最大重试次数后返回 422', async () => {
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(mockErrorItem);
+            mocks.mockAIService.generateSimilarQuestion.mockResolvedValue({
+                questionText: '求解 2x + 1 = 7',
+                answerText: 'x = 2',
+                analysis: '解析',
+                knowledgePoints: ['一元一次方程'],
+                subject: '数学',
+            });
+            mocks.mockBuildCheckerJson.mockReturnValue({
+                engine: 'rule_v1',
+                type: 'unknown',
+                checkable: false,
+                standard_answer: null,
+                student_answer: null,
+                is_correct: null,
+                diff: 'Unsupported pattern',
+                key_intermediates: [],
+            });
+
+            const request = new Request('http://localhost/api/practice/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    errorItemId: 'error-item-1',
+                    language: 'zh',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await GENERATE_POST(request);
+            const data = await response.json();
+
+            expect(response.status).toBe(422);
+            expect(data.message).toBe('PRACTICE_GATING_FAILED');
+            expect(mocks.mockAIService.generateSimilarQuestion).toHaveBeenCalledTimes(3);
+            expect(data.details?.maxAttempts).toBe(3);
         });
 
         it('应该处理 AI 服务错误', async () => {
