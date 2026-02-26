@@ -251,7 +251,7 @@ describe('/api/reanswer', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(401);
             expect(data.message).toBe('AI_AUTH_ERROR');
         });
 
@@ -272,7 +272,7 @@ describe('/api/reanswer', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(503);
             expect(data.message).toBe('AI_CONNECTION_FAILED');
         });
 
@@ -293,7 +293,7 @@ describe('/api/reanswer', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(502);
             expect(data.message).toBe('AI_RESPONSE_ERROR');
         });
 
@@ -315,7 +315,7 @@ describe('/api/reanswer', () => {
             const data = await response.json();
 
             expect(response.status).toBe(500);
-            expect(data.message).toBe('Unknown error occurred');
+            expect(data.message).toBe('AI_UNKNOWN_ERROR');
         });
 
         it('应该处理没有错误消息的异常', async () => {
@@ -334,7 +334,7 @@ describe('/api/reanswer', () => {
             const data = await response.json();
 
             expect(response.status).toBe(500);
-            expect(data.message).toBe('Failed to reanswer question');
+            expect(data.message).toBe('AI_UNKNOWN_ERROR');
         });
     });
 

@@ -368,8 +368,8 @@ describe('/api/practice', () => {
             const response = await GENERATE_POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
-            expect(data.message).toBe('AI service unavailable');
+            expect(response.status).toBe(503);
+            expect(data.message).toBe('AI_SERVICE_UNAVAILABLE');
         });
     });
 

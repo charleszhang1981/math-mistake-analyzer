@@ -212,7 +212,7 @@ describe('/api/analyze', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(401);
             expect(data.message).toBe('AI_AUTH_ERROR');
         });
 
@@ -233,7 +233,7 @@ describe('/api/analyze', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(503);
             expect(data.message).toBe('AI_CONNECTION_FAILED');
         });
 
@@ -254,7 +254,7 @@ describe('/api/analyze', () => {
             const response = await POST(request);
             const data = await response.json();
 
-            expect(response.status).toBe(500);
+            expect(response.status).toBe(502);
             expect(data.message).toBe('AI_RESPONSE_ERROR');
         });
 
@@ -276,7 +276,7 @@ describe('/api/analyze', () => {
             const data = await response.json();
 
             expect(response.status).toBe(500);
-            expect(data.message).toBe('AI_RESPONSE_ERROR');
+            expect(data.message).toBe('AI_UNKNOWN_ERROR');
         });
 
         it('应该处理未知错误', async () => {
@@ -297,7 +297,7 @@ describe('/api/analyze', () => {
             const data = await response.json();
 
             expect(response.status).toBe(500);
-            expect(data.message).toBe('Unknown error');
+            expect(data.message).toBe('AI_UNKNOWN_ERROR');
         });
 
         it('应该标准化知识点标签', async () => {

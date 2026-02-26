@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
     },
     mockPrismaSubject: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
     },
     mockSession: {
         user: {
@@ -82,8 +85,16 @@ describe('/api/error-items', () => {
         mocks.mockPrismaUser.findUnique.mockResolvedValue(mockUser);
         vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession);
 
-        // Default: subject not found (handle null case)
-        mocks.mockPrismaSubject.findUnique.mockResolvedValue(null);
+        // Default: math notebook exists for MVP subject lock
+        const mathNotebook = {
+            id: 'subject-math-id',
+            name: 'Math',
+            userId: mockUser.id,
+        };
+        mocks.mockPrismaSubject.findFirst.mockResolvedValue(mathNotebook);
+        mocks.mockPrismaSubject.findUnique.mockResolvedValue(mathNotebook);
+        mocks.mockPrismaSubject.create.mockResolvedValue(mathNotebook);
+        mocks.mockPrismaSubject.update.mockResolvedValue(mathNotebook);
 
         // Default: knowledgeTag returns a mock tag (used when finding existing tags)
         mocks.mockPrismaKnowledgeTag.findFirst.mockImplementation(async (args: any) => {
@@ -145,12 +156,12 @@ describe('/api/error-items', () => {
                 analysis: '简单加法',
                 knowledgePoints: ['加法'],
                 originalImageUrl: 'data:image/png;base64,test...',
-                subjectId: 'subject-math-id',
             };
 
             const createdItem = {
                 id: 'error-item-2',
                 ...errorItemData,
+                subjectId: 'subject-math-id',
                 userId: 'user-123',
                 masteryLevel: 0,
             };
@@ -167,6 +178,13 @@ describe('/api/error-items', () => {
 
             expect(response.status).toBe(201);
             expect(data.subjectId).toBe('subject-math-id');
+            expect(mocks.mockPrismaErrorItem.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        subjectId: 'subject-math-id',
+                    }),
+                })
+            );
         });
 
         it('应该成功创建错题并设置年级学期', async () => {

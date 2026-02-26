@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies
 vi.mock('@google/genai', () => {
@@ -45,8 +45,7 @@ describe('GeminiProvider Retry Logic', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        // Use fake timers with auto-advance to avoid manual timer management issues
-        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.useRealTimers();
         provider = new GeminiProvider({ apiKey: 'test-key' });
         // @ts-expect-error - accessing private property for testing
         mockGenerateContent = provider.ai.models.generateContent;
@@ -65,7 +64,6 @@ describe('GeminiProvider Retry Logic', () => {
                 usageMetadata: {}
             });
 
-        // With shouldAdvanceTime: true, fake timers will auto-advance
         const result = await provider.analyzeImage('base64data');
 
         expect(result).toBeDefined();
@@ -89,7 +87,6 @@ describe('GeminiProvider Retry Logic', () => {
     it('should give up after max retries', async () => {
         mockGenerateContent.mockRejectedValue(new Error('fetch failed'));
 
-        // With shouldAdvanceTime: true, fake timers will auto-advance through all retries
         await expect(provider.analyzeImage('base64data'))
             .rejects
             .toThrow('AI_CONNECTION_FAILED');
