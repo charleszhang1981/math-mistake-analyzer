@@ -539,7 +539,7 @@ describe('/api/practice', () => {
             const createdRecord = {
                 id: 'record-2',
                 userId: 'user-123',
-                subject: '英语',
+                subject: '数学',
                 difficulty: 'hard',
                 isCorrect: false,
                 createdAt: new Date(),
@@ -549,7 +549,7 @@ describe('/api/practice', () => {
             const request = new Request('http://localhost/api/practice/record', {
                 method: 'POST',
                 body: JSON.stringify({
-                    subject: '英语',
+                    subject: '数学',
                     difficulty: 'hard',
                     isCorrect: false,
                 }),
@@ -563,31 +563,58 @@ describe('/api/practice', () => {
             expect(data.isCorrect).toBe(false);
         });
 
-        it('应该记录不同学科的练习结果', async () => {
-            const subjects = ['数学', '物理', '化学', '英语', '语文'];
+        it('应该接受 math 别名并统一记录为数学', async () => {
+            const createdRecord = {
+                id: 'record-math-alias',
+                userId: 'user-123',
+                subject: '数学',
+                difficulty: 'medium',
+                isCorrect: true,
+                createdAt: new Date(),
+            };
+            mocks.mockPrismaPracticeRecord.create.mockResolvedValue(createdRecord);
 
-            for (const subject of subjects) {
-                mocks.mockPrismaPracticeRecord.create.mockResolvedValue({
-                    id: `record-${subject}`,
-                    userId: 'user-123',
-                    subject,
+            const request = new Request('http://localhost/api/practice/record', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subject: 'math',
                     difficulty: 'medium',
                     isCorrect: true,
-                });
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
 
-                const request = new Request('http://localhost/api/practice/record', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        subject,
-                        difficulty: 'medium',
-                        isCorrect: true,
+            const response = await RECORD_POST(request);
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data.subject).toBe('数学');
+            expect(mocks.mockPrismaPracticeRecord.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        subject: '数学',
                     }),
-                    headers: { 'Content-Type': 'application/json' },
-                });
+                })
+            );
+        });
 
-                const response = await RECORD_POST(request);
-                expect(response.status).toBe(200);
-            }
+        it('应该拒绝非数学学科', async () => {
+            const request = new Request('http://localhost/api/practice/record', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subject: '英语',
+                    difficulty: 'medium',
+                    isCorrect: true,
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await RECORD_POST(request);
+            const data = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(data.message).toBe('Subject is locked to Math in MVP');
+            expect(mocks.mockPrismaPracticeRecord.create).not.toHaveBeenCalled();
         });
 
         it('应该拒绝未登录用户', async () => {
