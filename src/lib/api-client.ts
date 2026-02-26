@@ -19,9 +19,10 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
         finalUrl += `?${searchParams.toString()}`;
     }
 
-    const defaultHeaders: HeadersInit = {
-        'Content-Type': 'application/json',
-    };
+    const isFormDataBody = typeof FormData !== 'undefined' && rest.body instanceof FormData;
+    const defaultHeaders: HeadersInit = isFormDataBody
+        ? {}
+        : { 'Content-Type': 'application/json' };
 
     // 创建 AbortController 用于超时控制
     const controller = new AbortController();
@@ -74,6 +75,8 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
 export const apiClient = {
     get: <T>(url: string, options?: RequestOptions) => request<T>(url, { ...options, method: 'GET' }),
     post: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'POST', body: JSON.stringify(body) }),
+    postForm: <TResponse>(url: string, formData: FormData, options?: RequestOptions) =>
+        request<TResponse>(url, { ...options, method: 'POST', body: formData }),
     put: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PUT', body: JSON.stringify(body) }),
     patch: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
     delete: <T>(url: string, options?: RequestOptions) => request<T>(url, { ...options, method: 'DELETE' }),

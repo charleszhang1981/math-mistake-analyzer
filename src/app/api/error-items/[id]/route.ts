@@ -53,14 +53,15 @@ export async function GET(
         }
 
         const responseItem = { ...errorItem } as typeof errorItem;
-        if (errorItem.rawImageKey) {
+        const imageKeyForDisplay = errorItem.cropImageKey || errorItem.rawImageKey;
+        if (imageKeyForDisplay) {
             try {
                 responseItem.originalImageUrl = await createSignedObjectUrl({
-                    key: errorItem.rawImageKey,
+                    key: imageKeyForDisplay,
                     expiresIn: 1800,
                 });
             } catch (signError) {
-                logger.warn({ id, signError }, 'Failed to sign raw image URL, fallback to stored originalImageUrl');
+                logger.warn({ id, signError, imageKeyForDisplay }, 'Failed to sign image URL, fallback to stored originalImageUrl');
             }
         }
 

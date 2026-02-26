@@ -12,6 +12,7 @@ import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
+import { uploadImageToStorage } from "@/lib/image-upload-client";
 import { ArrowLeft } from "lucide-react";
 import { ProgressFeedback, ProgressStatus } from "@/components/ui/progress-feedback";
 import { frontendLogger } from "@/lib/frontend-logger";
@@ -25,6 +26,8 @@ export default function AddErrorPage() {
     const [progress, setProgress] = useState(0);
     const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
+    const [rawImageKey, setRawImageKey] = useState<string | null>(null);
+    const [cropImageKey, setCropImageKey] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const [notebook, setNotebook] = useState<Notebook | null>(null);
     const [config, setConfig] = useState<AppConfig | null>(null);
@@ -93,16 +96,43 @@ export default function AddErrorPage() {
         };
     }, [analysisStep, safetyTimeout]);
 
-    const onImageSelect = (file: File) => {
-        const imageUrl = URL.createObjectURL(file);
-        setCroppingImage(imageUrl);
-        setIsCropperOpen(true);
+    const onImageSelect = async (file: File) => {
+        try {
+            setAnalysisStep('uploading');
+            const uploadResult = await uploadImageToStorage(file, "raw");
+            setRawImageKey(uploadResult.key);
+            setCropImageKey(null);
+            setCurrentImage(null);
+
+            const imageUrl = URL.createObjectURL(file);
+            setCroppingImage(imageUrl);
+            setIsCropperOpen(true);
+        } catch (error) {
+            frontendLogger.error('[AddUpload]', 'Failed to upload raw image', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+        } finally {
+            setAnalysisStep('idle');
+        }
     };
 
     const handleCropComplete = async (croppedBlob: Blob) => {
         setIsCropperOpen(false);
         const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
-        handleAnalyze(file);
+        try {
+            setAnalysisStep('uploading');
+            const uploadResult = await uploadImageToStorage(file, "crop");
+            setCropImageKey(uploadResult.key);
+        } catch (error) {
+            frontendLogger.error('[AddUpload]', 'Failed to upload cropped image', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            setAnalysisStep('idle');
+            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+            return;
+        }
+        await handleAnalyze(file);
     };
 
     const handleAnalyze = async (file: File) => {
@@ -238,15 +268,19 @@ export default function AddErrorPage() {
     };
 
     const handleSave = async (finalData: ParsedQuestion & { subjectId?: string; gradeSemester?: string; paperLevel?: string }): Promise<void> => {
-        if (!currentImage) {
+        if (!rawImageKey) {
             alert(t.common.messages?.missingImage || 'Missing image');
             return;
         }
 
+        const imageRefKey = cropImageKey || rawImageKey;
+
         try {
             const result = await apiClient.post<{ id: string; duplicate?: boolean }>("/api/error-items", {
                 ...finalData,
-                originalImageUrl: currentImage,
+                originalImageUrl: `storage:${imageRefKey}`,
+                rawImageKey,
+                cropImageKey: cropImageKey || undefined,
                 subjectId: notebookId,
             });
 

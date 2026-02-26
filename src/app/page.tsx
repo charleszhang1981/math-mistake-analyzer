@@ -13,6 +13,7 @@ import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
+import { uploadImageToStorage } from "@/lib/image-upload-client";
 import { Upload, BookOpen, Tags, LogOut, BarChart3 } from "lucide-react";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { BroadcastNotification } from "@/components/broadcast-notification";
@@ -27,6 +28,8 @@ function HomeContent() {
     const [progress, setProgress] = useState(0);
     const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
+    const [rawImageKey, setRawImageKey] = useState<string | null>(null);
+    const [cropImageKey, setCropImageKey] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -97,17 +100,43 @@ function HomeContent() {
         };
     }, [analysisStep, safetyTimeout]);
 
-    const onImageSelect = (file: File) => {
-        const imageUrl = URL.createObjectURL(file);
-        setCroppingImage(imageUrl);
-        setIsCropperOpen(true);
+    const onImageSelect = async (file: File) => {
+        try {
+            setAnalysisStep('uploading');
+            const uploadResult = await uploadImageToStorage(file, "raw");
+            setRawImageKey(uploadResult.key);
+            setCropImageKey(null);
+            setCurrentImage(null);
+
+            const imageUrl = URL.createObjectURL(file);
+            setCroppingImage(imageUrl);
+            setIsCropperOpen(true);
+        } catch (error) {
+            frontendLogger.error('[HomeUpload]', 'Failed to upload raw image', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+        } finally {
+            setAnalysisStep('idle');
+        }
     };
 
     const handleCropComplete = async (croppedBlob: Blob) => {
         setIsCropperOpen(false);
-        // Convert Blob to File
         const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
-        handleAnalyze(file);
+        try {
+            setAnalysisStep('uploading');
+            const uploadResult = await uploadImageToStorage(file, "crop");
+            setCropImageKey(uploadResult.key);
+        } catch (error) {
+            frontendLogger.error('[HomeUpload]', 'Failed to upload cropped image', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            setAnalysisStep('idle');
+            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+            return;
+        }
+        await handleAnalyze(file);
     };
 
     const handleAnalyze = async (file: File) => {
@@ -252,6 +281,13 @@ function HomeContent() {
     };
 
     const handleSave = async (finalData: ParsedQuestion & { subjectId?: string }): Promise<void> => {
+        if (!rawImageKey) {
+            alert(t.common?.messages?.missingImage || 'Missing image');
+            return;
+        }
+
+        const imageRefKey = cropImageKey || rawImageKey;
+
         frontendLogger.info('[HomeSave]', 'Starting save process', {
             hasQuestionText: !!finalData.questionText,
             hasAnswerText: !!finalData.answerText,
@@ -259,12 +295,16 @@ function HomeContent() {
             knowledgePointsCount: finalData.knowledgePoints?.length || 0,
             hasImage: !!currentImage,
             imageSize: currentImage?.length || 0,
+            rawImageKey,
+            cropImageKey,
         });
 
         try {
             const result = await apiClient.post<{ id: string; duplicate?: boolean }>("/api/error-items", {
                 ...finalData,
-                originalImageUrl: currentImage || "",
+                originalImageUrl: `storage:${imageRefKey}`,
+                rawImageKey,
+                cropImageKey: cropImageKey || undefined,
             });
 
             // 检查是否是重复提交（后端去重返回）
@@ -276,6 +316,8 @@ function HomeContent() {
             setStep("upload");
             setParsedData(null);
             setCurrentImage(null);
+            setRawImageKey(null);
+            setCropImageKey(null);
             alert(t.common?.messages?.saveSuccess || 'Saved successfully!');
 
             // Redirect to notebook page if subjectId is present
