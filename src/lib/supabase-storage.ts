@@ -46,6 +46,8 @@ export async function uploadPrivateObject(params: {
     const { supabaseUrl, serviceRoleKey, bucket } = getStorageConfig();
     const encodedKey = encodeStorageKey(params.key);
     const upsert = params.upsert ? 'true' : 'false';
+    const uploadBytes = new Uint8Array(params.body);
+    const uploadBody = new Blob([uploadBytes], { type: params.contentType });
 
     const res = await fetch(
         `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`,
@@ -57,7 +59,7 @@ export async function uploadPrivateObject(params: {
                 'Content-Type': params.contentType,
                 'x-upsert': upsert,
             },
-            body: params.body,
+            body: uploadBody,
         }
     );
 
@@ -107,4 +109,3 @@ export async function createSignedObjectUrl(params: {
 
     return `${supabaseUrl}${signedPath}`;
 }
-

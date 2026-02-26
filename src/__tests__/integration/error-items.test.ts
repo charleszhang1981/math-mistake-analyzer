@@ -495,6 +495,87 @@ describe('/api/error-items', () => {
             );
         });
 
+        it('should persist diagnosis finalCause and return it on detail reload', async () => {
+            const baseDiagnosis = {
+                version: 'rule_v1',
+                candidates: [
+                    {
+                        cause: 'Sign error when moving terms',
+                        trigger: 'sign_error',
+                        evidence: 'Expected x = 3, got x = 4',
+                        questions_to_ask: ['Did you flip the sign while moving +2 to the other side?'],
+                    },
+                ],
+                finalCause: null,
+            };
+
+            const existingItem = {
+                id: 'error-item-1',
+                userId: 'user-123',
+                questionText: 'Solve x + 2 = 5',
+                answerText: 'x = 4',
+                analysis: 'Move +2 to the right side.',
+                checkerJson: {
+                    engine: 'rule_v1',
+                    type: 'linear_equation',
+                    checkable: true,
+                    standard_answer: '3',
+                    student_answer: '4',
+                    is_correct: false,
+                    diff: 'Expected x = 3, got x = 4',
+                    key_intermediates: [{ name: 'a', value: '1' }],
+                },
+                diagnosisJson: baseDiagnosis,
+                subject: null,
+                tags: [],
+            };
+
+            const updatedItem = {
+                ...existingItem,
+                diagnosisJson: {
+                    ...baseDiagnosis,
+                    finalCause: 'Sign error when moving terms',
+                },
+            };
+
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.update.mockResolvedValue(updatedItem);
+
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    diagnosisJson: updatedItem.diagnosisJson,
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data.diagnosisJson.finalCause).toBe('Sign error when moving terms');
+            expect(mocks.mockPrismaErrorItem.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        diagnosisJson: expect.objectContaining({
+                            finalCause: 'Sign error when moving terms',
+                        }),
+                    }),
+                })
+            );
+
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(updatedItem);
+
+            const reloadRes = await GET_ITEM(
+                new Request('http://localhost/api/error-items/error-item-1'),
+                { params: Promise.resolve({ id: 'error-item-1' }) }
+            );
+            const reloadData = await reloadRes.json();
+
+            expect(reloadRes.status).toBe(200);
+            expect(reloadData.diagnosisJson.finalCause).toBe('Sign error when moving terms');
+        });
+
         it('应该成功更新年级学期', async () => {
             const existingItem = {
                 id: 'error-item-1',

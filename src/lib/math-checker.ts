@@ -56,15 +56,19 @@ type DiagnosisInput = {
     analysis?: string | null;
 };
 
+const BIGINT_ZERO = BigInt(0);
+const BIGINT_ONE = BigInt(1);
+const BIGINT_NEG_ONE = BigInt(-1);
+
 function gcd(a: bigint, b: bigint): bigint {
-    let x = a < 0n ? -a : a;
-    let y = b < 0n ? -b : b;
-    while (y !== 0n) {
+    let x = a < BIGINT_ZERO ? -a : a;
+    let y = b < BIGINT_ZERO ? -b : b;
+    while (y !== BIGINT_ZERO) {
         const temp = x % y;
         x = y;
         y = temp;
     }
-    return x === 0n ? 1n : x;
+    return x === BIGINT_ZERO ? BIGINT_ONE : x;
 }
 
 class Fraction {
@@ -72,10 +76,10 @@ class Fraction {
     readonly d: bigint;
 
     constructor(numerator: bigint, denominator: bigint) {
-        if (denominator === 0n) {
+        if (denominator === BIGINT_ZERO) {
             throw new Error("Division by zero");
         }
-        const sign = denominator < 0n ? -1n : 1n;
+        const sign = denominator < BIGINT_ZERO ? BIGINT_NEG_ONE : BIGINT_ONE;
         const g = gcd(numerator, denominator);
         this.n = (numerator / g) * sign;
         this.d = (denominator / g) * sign;
@@ -91,7 +95,7 @@ class Fraction {
         }
 
         if (/^[+-]?\d+$/.test(text)) {
-            return new Fraction(BigInt(text), 1n);
+            return new Fraction(BigInt(text), BIGINT_ONE);
         }
 
         return null;
@@ -126,7 +130,7 @@ class Fraction {
     }
 
     toAnswerString(): string {
-        if (this.d === 1n) return this.n.toString();
+        if (this.d === BIGINT_ONE) return this.n.toString();
         return `${this.n}/${this.d}`;
     }
 }
