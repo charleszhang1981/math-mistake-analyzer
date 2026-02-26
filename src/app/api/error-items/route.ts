@@ -7,6 +7,12 @@ import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
+import {
+    buildCheckerJson,
+    buildDiagnosisJson,
+    normalizeCheckerJson,
+    normalizeDiagnosisJson,
+} from "@/lib/math-checker";
 
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
@@ -189,6 +195,10 @@ export async function POST(req: Request) {
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson)
             ?? buildStructuredQuestionJson({ questionText, answerText, analysis });
+        const normalizedCheckerJson = normalizeCheckerJson(checkerJson)
+            ?? buildCheckerJson({ questionText, answerText });
+        const normalizedDiagnosisJson = normalizeDiagnosisJson(diagnosisJson)
+            ?? buildDiagnosisJson({ questionText, answerText, analysis }, normalizedCheckerJson);
 
         // 创建错题记录
         try {
@@ -204,8 +214,8 @@ export async function POST(req: Request) {
                     analysis,
                     knowledgePoints: JSON.stringify(tagNames),
                     structuredJson: normalizedStructuredJson ?? undefined,
-                    checkerJson: checkerJson ?? undefined,
-                    diagnosisJson: diagnosisJson ?? undefined,
+                    checkerJson: normalizedCheckerJson ?? undefined,
+                    diagnosisJson: normalizedDiagnosisJson ?? undefined,
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     masteryLevel: 0,

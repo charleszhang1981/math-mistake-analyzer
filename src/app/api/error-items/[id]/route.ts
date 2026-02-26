@@ -7,6 +7,12 @@ import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
+import {
+    buildCheckerJson,
+    buildDiagnosisJson,
+    normalizeCheckerJson,
+    normalizeDiagnosisJson,
+} from "@/lib/math-checker";
 
 const logger = createLogger('api:error-items:id');
 
@@ -149,8 +155,46 @@ export async function PUT(
         } else if (structuredJson === null) {
             updateData.structuredJson = null;
         }
-        if (checkerJson !== undefined) updateData.checkerJson = checkerJson;
-        if (diagnosisJson !== undefined) updateData.diagnosisJson = diagnosisJson;
+        const effectiveQuestionText = questionText !== undefined ? questionText : errorItem.questionText;
+        const effectiveAnswerText = answerText !== undefined ? answerText : errorItem.answerText;
+        const effectiveAnalysis = analysis !== undefined ? analysis : errorItem.analysis;
+        const textChanged = questionText !== undefined || answerText !== undefined || analysis !== undefined;
+
+        const normalizedCheckerJson = normalizeCheckerJson(checkerJson);
+        if (normalizedCheckerJson !== null) {
+            updateData.checkerJson = normalizedCheckerJson;
+        } else if (checkerJson === null) {
+            updateData.checkerJson = null;
+        } else if (checkerJson === undefined && textChanged) {
+            updateData.checkerJson = buildCheckerJson({
+                questionText: effectiveQuestionText,
+                answerText: effectiveAnswerText,
+            });
+        }
+
+        const normalizedDiagnosisJson = normalizeDiagnosisJson(diagnosisJson);
+        if (normalizedDiagnosisJson !== null) {
+            updateData.diagnosisJson = normalizedDiagnosisJson;
+        } else if (diagnosisJson === null) {
+            updateData.diagnosisJson = null;
+        } else if (diagnosisJson === undefined && textChanged) {
+            const checkerForDiagnosis =
+                normalizeCheckerJson(updateData.checkerJson)
+                ?? normalizeCheckerJson(errorItem.checkerJson)
+                ?? buildCheckerJson({
+                    questionText: effectiveQuestionText,
+                    answerText: effectiveAnswerText,
+                });
+
+            updateData.diagnosisJson = buildDiagnosisJson(
+                {
+                    questionText: effectiveQuestionText,
+                    answerText: effectiveAnswerText,
+                    analysis: effectiveAnalysis,
+                },
+                checkerForDiagnosis
+            );
+        }
 
         // 处理 knowledgePoints (标签)
         if (knowledgePoints !== undefined) {

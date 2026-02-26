@@ -158,6 +158,14 @@ describe('/api/error-items', () => {
                                 final_answer_markdown: errorItemData.answerText,
                             }),
                         }),
+                        checkerJson: expect.objectContaining({
+                            type: 'linear_equation',
+                            checkable: true,
+                            standard_answer: '3',
+                        }),
+                        diagnosisJson: expect.objectContaining({
+                            candidates: expect.any(Array),
+                        }),
                     }),
                 })
             );
@@ -432,6 +440,55 @@ describe('/api/error-items', () => {
                                 final_answer_markdown: '新答案',
                                 steps: ['第一步', '第二步'],
                             }),
+                        }),
+                    }),
+                })
+            );
+        });
+
+        it('should regenerate checkerJson and diagnosisJson when text fields are updated', async () => {
+            const existingItem = {
+                id: 'error-item-1',
+                userId: 'user-123',
+                questionText: '旧题目',
+                answerText: '旧答案',
+                analysis: '旧解析',
+                checkerJson: null,
+                diagnosisJson: null,
+            };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({
+                ...existingItem,
+                questionText: '解方程 x + 2 = 5',
+                answerText: 'x = 4',
+                analysis: '移项后得到 x = 4',
+            });
+
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    questionText: '解方程 x + 2 = 5',
+                    answerText: 'x = 4',
+                    analysis: '移项后得到 x = 4',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+
+            expect(response.status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        checkerJson: expect.objectContaining({
+                            type: 'linear_equation',
+                            checkable: true,
+                            standard_answer: '3',
+                            student_answer: '4',
+                            is_correct: false,
+                        }),
+                        diagnosisJson: expect.objectContaining({
+                            candidates: expect.any(Array),
                         }),
                     }),
                 })
