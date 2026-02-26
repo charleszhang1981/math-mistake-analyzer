@@ -6,6 +6,7 @@ import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-erro
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
+import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
 
 const logger = createLogger('api:error-items:id');
 
@@ -132,7 +133,22 @@ export async function PUT(
         if (analysis !== undefined) updateData.analysis = analysis;
         if (rawImageKey !== undefined) updateData.rawImageKey = rawImageKey || null;
         if (cropImageKey !== undefined) updateData.cropImageKey = cropImageKey || null;
-        if (structuredJson !== undefined) updateData.structuredJson = structuredJson;
+        const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson);
+        if (normalizedStructuredJson !== null) {
+            updateData.structuredJson = normalizedStructuredJson;
+        } else if (structuredJson === undefined) {
+            const fallbackStructuredJson = buildStructuredQuestionJson({
+                questionText: questionText !== undefined ? questionText : errorItem.questionText,
+                answerText: answerText !== undefined ? answerText : errorItem.answerText,
+                analysis: analysis !== undefined ? analysis : errorItem.analysis,
+            });
+
+            if (fallbackStructuredJson) {
+                updateData.structuredJson = fallbackStructuredJson;
+            }
+        } else if (structuredJson === null) {
+            updateData.structuredJson = null;
+        }
         if (checkerJson !== undefined) updateData.checkerJson = checkerJson;
         if (diagnosisJson !== undefined) updateData.diagnosisJson = diagnosisJson;
 

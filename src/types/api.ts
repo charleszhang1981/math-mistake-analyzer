@@ -1,4 +1,5 @@
 import { ParsedQuestion } from "@/lib/ai/types";
+import type { StructuredQuestionJson } from "@/lib/ai/structured-json";
 
 // 通用分页响应类型
 export interface PaginatedResponse<T> {
@@ -58,7 +59,7 @@ export interface ErrorItem {
     answerText?: string | null;
     analysis?: string | null;
     knowledgePoints?: string | null;
-    structuredJson?: unknown;
+    structuredJson?: StructuredQuestionJson | null;
     checkerJson?: unknown;
     diagnosisJson?: unknown;
 
@@ -80,7 +81,7 @@ export interface CreateErrorItemRequest extends ParsedQuestion {
     originalImageUrl: string;
     rawImageKey?: string;
     cropImageKey?: string;
-    structuredJson?: unknown;
+    structuredJson?: StructuredQuestionJson | null;
     checkerJson?: unknown;
     diagnosisJson?: unknown;
     subjectId?: string;
@@ -88,7 +89,9 @@ export interface CreateErrorItemRequest extends ParsedQuestion {
     paperLevel?: string;
 }
 
-export type AnalyzeResponse = ParsedQuestion;
+export type AnalyzeResponse = ParsedQuestion & {
+    structuredJson?: StructuredQuestionJson | null;
+};
 
 export interface UserProfile {
     id: string;

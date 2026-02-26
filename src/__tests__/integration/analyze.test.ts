@@ -95,6 +95,9 @@ describe('/api/analyze', () => {
             expect(data.questionText).toBe('求解 x + 2 = 5');
             expect(data.answerText).toBe('x = 3');
             expect(data.knowledgePoints).toHaveLength(2);
+            expect(data.structuredJson).toBeDefined();
+            expect(data.structuredJson.problem.question_markdown).toBe(aiResult.questionText);
+            expect(data.structuredJson.student.final_answer_markdown).toBe(aiResult.answerText);
         });
 
         it('应该支持 Data URL 格式的图像', async () => {

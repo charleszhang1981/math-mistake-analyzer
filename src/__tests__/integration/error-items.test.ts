@@ -147,6 +147,20 @@ describe('/api/error-items', () => {
             expect(response.status).toBe(201);
             expect(data.id).toBe('error-item-1');
             expect(data.questionText).toBe('求解 x + 2 = 5');
+            expect(mocks.mockPrismaErrorItem.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        structuredJson: expect.objectContaining({
+                            problem: expect.objectContaining({
+                                question_markdown: errorItemData.questionText,
+                            }),
+                            student: expect.objectContaining({
+                                final_answer_markdown: errorItemData.answerText,
+                            }),
+                        }),
+                    }),
+                })
+            );
         });
 
         it('应该成功创建错题并关联到科目', async () => {
@@ -375,6 +389,53 @@ describe('/api/error-items', () => {
 
             expect(response.status).toBe(200);
             expect(data.knowledgePoints).toContain('新知识点1');
+        });
+
+        it('should regenerate structuredJson when text fields are updated', async () => {
+            const existingItem = {
+                id: 'error-item-1',
+                userId: 'user-123',
+                questionText: '旧题目',
+                answerText: '旧答案',
+                analysis: '旧解析',
+                gradeSemester: '初一上学期',
+            };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({
+                ...existingItem,
+                questionText: '新题目',
+                answerText: '新答案',
+                analysis: '第一步\n第二步',
+            });
+
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    questionText: '新题目',
+                    answerText: '新答案',
+                    analysis: '第一步\n第二步',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+
+            expect(response.status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        structuredJson: expect.objectContaining({
+                            problem: expect.objectContaining({
+                                question_markdown: '新题目',
+                            }),
+                            student: expect.objectContaining({
+                                final_answer_markdown: '新答案',
+                                steps: ['第一步', '第二步'],
+                            }),
+                        }),
+                    }),
+                })
+            );
         });
 
         it('应该成功更新年级学期', async () => {

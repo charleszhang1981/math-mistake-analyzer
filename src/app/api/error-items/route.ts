@@ -6,6 +6,7 @@ import { calculateGrade } from "@/lib/grade-calculator";
 import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
 
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
@@ -186,6 +187,8 @@ export async function POST(req: Request) {
         }
 
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
+        const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson)
+            ?? buildStructuredQuestionJson({ questionText, answerText, analysis });
 
         // 创建错题记录
         try {
@@ -200,7 +203,7 @@ export async function POST(req: Request) {
                     answerText,
                     analysis,
                     knowledgePoints: JSON.stringify(tagNames),
-                    structuredJson: structuredJson ?? undefined,
+                    structuredJson: normalizedStructuredJson ?? undefined,
                     checkerJson: checkerJson ?? undefined,
                     diagnosisJson: diagnosisJson ?? undefined,
                     gradeSemester: finalGradeSemester,

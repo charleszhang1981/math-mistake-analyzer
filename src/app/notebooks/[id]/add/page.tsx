@@ -6,7 +6,6 @@ import Link from "next/link";
 import { UploadZone } from "@/components/upload-zone";
 import { CorrectionEditor } from "@/components/correction-editor";
 import { ImageCropper } from "@/components/image-cropper";
-import { ParsedQuestion } from "@/lib/ai";
 import { apiClient } from "@/lib/api-client";
 import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
@@ -24,7 +23,7 @@ export default function AddErrorPage() {
     const [step, setStep] = useState<"upload" | "review">("upload");
     const [analysisStep, setAnalysisStep] = useState<ProgressStatus>('idle');
     const [progress, setProgress] = useState(0);
-    const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
+    const [parsedData, setParsedData] = useState<AnalyzeResponse | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const [rawImageKey, setRawImageKey] = useState<string | null>(null);
     const [cropImageKey, setCropImageKey] = useState<string | null>(null);
@@ -267,7 +266,7 @@ export default function AddErrorPage() {
         }
     };
 
-    const handleSave = async (finalData: ParsedQuestion & { subjectId?: string; gradeSemester?: string; paperLevel?: string }): Promise<void> => {
+    const handleSave = async (finalData: AnalyzeResponse & { subjectId?: string; gradeSemester?: string; paperLevel?: string }): Promise<void> => {
         if (!rawImageKey) {
             alert(t.common.messages?.missingImage || 'Missing image');
             return;

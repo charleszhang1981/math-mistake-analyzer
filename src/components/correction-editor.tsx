@@ -18,15 +18,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiClient } from "@/lib/api-client";
 import { UserProfile, Notebook } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import type { StructuredQuestionJson } from "@/lib/ai/structured-json";
 
 interface ParsedQuestionWithSubject extends ParsedQuestion {
     subjectId?: string;
     gradeSemester?: string;
     paperLevel?: string;
+    structuredJson?: StructuredQuestionJson | null;
 }
 
 interface CorrectionEditorProps {
-    initialData: ParsedQuestion;
+    initialData: ParsedQuestion & { structuredJson?: StructuredQuestionJson | null };
     onSave: (data: ParsedQuestionWithSubject) => Promise<void>;
     onCancel: () => void;
     imagePreview?: string | null;

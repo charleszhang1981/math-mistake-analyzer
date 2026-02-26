@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { normalizeAIError } from "@/lib/ai/error-normalizer";
+import { buildStructuredQuestionJson } from "@/lib/ai/structured-json";
 
 const logger = createLogger('api:analyze');
 
@@ -89,6 +90,7 @@ export async function POST(req: Request) {
         logger.info({ userGrade, subject: subjectChinese }, 'Calling AI service for image analysis');
         const aiService = getAIService();
         const analysisResult = await aiService.analyzeImage(imageBase64, mimeType, language, userGrade, subjectChinese);
+        const structuredJson = buildStructuredQuestionJson(analysisResult);
 
         logger.debug({
             knowledgePointsCount: analysisResult.knowledgePoints?.length,
@@ -103,7 +105,10 @@ export async function POST(req: Request) {
 
         logger.info('AI analysis successful');
 
-        return NextResponse.json(analysisResult);
+        return NextResponse.json({
+            ...analysisResult,
+            structuredJson,
+        });
     } catch (error: any) {
         logger.error({
             error: error.message,
