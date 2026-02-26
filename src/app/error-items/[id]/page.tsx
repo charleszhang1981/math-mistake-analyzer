@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiClient } from "@/lib/api-client";
 import { UserProfile } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import type { CheckerJson, DiagnosisJson } from "@/lib/math-checker";
 
 interface KnowledgeTag {
     id: string;
@@ -39,6 +40,8 @@ interface ErrorItemDetail {
     } | null;
     gradeSemester?: string | null;
     paperLevel?: string | null;
+    checkerJson?: CheckerJson | null;
+    diagnosisJson?: DiagnosisJson | null;
 }
 
 export default function ErrorDetailPage() {
@@ -55,6 +58,8 @@ export default function ErrorDetailPage() {
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [gradeSemesterInput, setGradeSemesterInput] = useState("");
     const [paperLevelInput, setPaperLevelInput] = useState("a");
+    const [isEditingDiagnosis, setIsEditingDiagnosis] = useState(false);
+    const [diagnosisFinalCauseInput, setDiagnosisFinalCauseInput] = useState("");
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
@@ -202,6 +207,41 @@ export default function ErrorDetailPage() {
         setPaperLevelInput("a");
     };
 
+    const startEditingDiagnosis = () => {
+        if (!item?.diagnosisJson) return;
+        setDiagnosisFinalCauseInput(item.diagnosisJson.finalCause || "");
+        setIsEditingDiagnosis(true);
+    };
+
+    const cancelEditingDiagnosis = () => {
+        setIsEditingDiagnosis(false);
+        setDiagnosisFinalCauseInput("");
+    };
+
+    const saveDiagnosisHandler = async () => {
+        if (!item?.diagnosisJson) return;
+
+        const nextDiagnosis: DiagnosisJson = {
+            ...item.diagnosisJson,
+            finalCause: diagnosisFinalCauseInput.trim() || null,
+        };
+
+        try {
+            await apiClient.put(`/api/error-items/${item.id}`, {
+                diagnosisJson: nextDiagnosis,
+            });
+            setItem({
+                ...item,
+                diagnosisJson: nextDiagnosis,
+            });
+            setIsEditingDiagnosis(false);
+            alert(t.common?.messages?.saveSuccess || "Saved successfully");
+        } catch (error) {
+            console.error(error);
+            alert(t.common?.messages?.saveFailed || "Save failed");
+        }
+    };
+
     const [isEditingQuestion, setIsEditingQuestion] = useState(false);
     const [questionInput, setQuestionInput] = useState("");
 
@@ -315,6 +355,12 @@ export default function ErrorDetailPage() {
             tags = [];
         }
     }
+
+    const checker = item.checkerJson || null;
+    const diagnosis = item.diagnosisJson || null;
+    const diagnosisCandidates = diagnosis?.candidates || [];
+    const detailLabels = t.detail as Record<string, string | undefined>;
+    const detailText = (key: string, fallback: string) => detailLabels?.[key] || fallback;
 
     return (
         <main className="min-h-screen bg-background">
@@ -702,6 +748,162 @@ export default function ErrorDetailPage() {
                                     </div>
                                 ) : (
                                     <MarkdownRenderer content={item.analysis} />
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>{detailText("checker", "Checker")}</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-3 text-sm">
+                                {checker ? (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <span className="text-muted-foreground">{detailText("checkerType", "Type")}: </span>
+                                                <span className="font-medium">{checker.type}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">{detailText("checkable", "Checkable")}: </span>
+                                                <span className="font-medium">{checker.checkable ? "Yes" : "No"}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">{detailText("standardAnswer", "Standard")}: </span>
+                                                <span className="font-medium">{checker.standard_answer || "-"}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">{detailText("studentAnswer", "Student")}: </span>
+                                                <span className="font-medium">{checker.student_answer || "-"}</span>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <span className="text-muted-foreground">{detailText("result", "Result")}: </span>
+                                            {checker.is_correct === true && (
+                                                <Badge className="ml-2 bg-green-600 hover:bg-green-700">Correct</Badge>
+                                            )}
+                                            {checker.is_correct === false && (
+                                                <Badge className="ml-2" variant="destructive">Incorrect</Badge>
+                                            )}
+                                            {checker.is_correct === null && (
+                                                <Badge className="ml-2" variant="secondary">Unknown</Badge>
+                                            )}
+                                        </div>
+
+                                        {checker.diff && (
+                                            <div className="rounded-md border bg-muted/50 p-2">
+                                                <p className="text-xs text-muted-foreground mb-1">{detailText("difference", "Difference")}</p>
+                                                <p>{checker.diff}</p>
+                                            </div>
+                                        )}
+
+                                        {checker.key_intermediates?.length > 0 && (
+                                            <div className="rounded-md border p-2">
+                                                <p className="text-xs text-muted-foreground mb-2">{detailText("intermediates", "Key Intermediates")}</p>
+                                                <div className="space-y-1">
+                                                    {checker.key_intermediates.map((entry) => (
+                                                        <div key={entry.name} className="flex justify-between gap-4">
+                                                            <span className="text-muted-foreground">{entry.name}</span>
+                                                            <span className="font-medium">{entry.value}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p className="text-muted-foreground">{detailText("noChecker", "No checker result yet.")}</p>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <div className="flex justify-between items-center">
+                                    <CardTitle>{detailText("diagnosis", "Diagnosis")}</CardTitle>
+                                    {diagnosis && !isEditingDiagnosis && (
+                                        <Button variant="ghost" size="sm" onClick={startEditingDiagnosis}>
+                                            <Edit className="h-4 w-4 mr-1" />
+                                            {t.common?.edit || "Edit"}
+                                        </Button>
+                                    )}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {diagnosis ? (
+                                    <>
+                                        <div className="space-y-3">
+                                            {diagnosisCandidates.map((candidate, idx) => (
+                                                <div key={`${candidate.cause}-${idx}`} className="rounded-md border p-3 space-y-2">
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">{detailText("cause", "Cause")}</p>
+                                                        <p className="font-medium">{candidate.cause}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">{detailText("trigger", "Trigger")}</p>
+                                                        <p>{candidate.trigger}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">{detailText("evidence", "Evidence")}</p>
+                                                        <p>{candidate.evidence}</p>
+                                                    </div>
+                                                    {candidate.questions_to_ask?.length > 0 && (
+                                                        <div>
+                                                            <p className="text-xs text-muted-foreground">{detailText("followup", "Follow-up")}</p>
+                                                            <div className="space-y-1">
+                                                                {candidate.questions_to_ask.map((q, qIdx) => (
+                                                                    <p key={`${idx}-${qIdx}`}>- {q}</p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="border-t pt-3 space-y-2">
+                                            <p className="text-sm font-semibold">{detailText("finalCause", "Final Cause (Confirmed)")}</p>
+                                            {isEditingDiagnosis ? (
+                                                <div className="space-y-3">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {diagnosisCandidates.map((candidate, idx) => (
+                                                            <Badge
+                                                                key={`pick-${idx}`}
+                                                                variant="outline"
+                                                                className="cursor-pointer"
+                                                                onClick={() => setDiagnosisFinalCauseInput(candidate.cause)}
+                                                            >
+                                                                {candidate.cause}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                    <Textarea
+                                                        value={diagnosisFinalCauseInput}
+                                                        onChange={(e) => setDiagnosisFinalCauseInput(e.target.value)}
+                                                        placeholder={detailText("finalCausePlaceholder", "Confirm or edit final cause")}
+                                                        rows={3}
+                                                    />
+                                                    <div className="flex gap-2">
+                                                        <Button size="sm" onClick={saveDiagnosisHandler}>
+                                                            <Save className="h-4 w-4 mr-1" />
+                                                            {t.common?.save || "Save"}
+                                                        </Button>
+                                                        <Button size="sm" variant="outline" onClick={cancelEditingDiagnosis}>
+                                                            <X className="h-4 w-4 mr-1" />
+                                                            {t.common?.cancel || "Cancel"}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm">
+                                                    {diagnosis.finalCause || detailText("notConfirmed", "Not confirmed yet")}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-muted-foreground">{detailText("noDiagnosis", "No diagnosis yet.")}</p>
                                 )}
                             </CardContent>
                         </Card>
