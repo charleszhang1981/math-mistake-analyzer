@@ -76,6 +76,26 @@ export interface ErrorItem {
     updatedAt: string;
 }
 
+export interface ReviewQueueItem {
+    errorItemId: string;
+    questionText: string;
+    analysis: string | null;
+    tags: string[];
+    cause: string;
+    nextDueAt: string;
+    isDue: boolean;
+    lastReviewedAt: string | null;
+    lastReviewCorrect: boolean | null;
+    lastReviewNote: string | null;
+    reviewCount: number;
+}
+
+export interface ReviewListResponse {
+    items: ReviewQueueItem[];
+    total: number;
+    dueOnly: boolean;
+}
+
 // For creation/updates
 export interface CreateErrorItemRequest extends ParsedQuestion {
     originalImageUrl: string;

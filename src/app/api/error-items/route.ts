@@ -222,6 +222,11 @@ export async function POST(req: Request) {
                     tags: {
                         connect: tagConnections,
                     },
+                    reviewSchedules: {
+                        create: {
+                            scheduledFor: new Date(),
+                        },
+                    },
                 },
                 include: {
                     tags: true,

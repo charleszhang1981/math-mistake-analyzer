@@ -125,8 +125,12 @@ model ReviewSchedule {
   scheduledFor DateTime
   completedAt  DateTime?
   isCorrect    Boolean? // Result of the review
+  reviewNote   String?
   
   createdAt    DateTime @default(now())
+
+  @@index([scheduledFor])
+  @@index([errorItemId, completedAt])
 }
 
 model PracticeRecord {
