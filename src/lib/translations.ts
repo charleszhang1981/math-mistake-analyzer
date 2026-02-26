@@ -124,6 +124,8 @@ export const translations = {
             reanswering: "AI solving...",
             reanswer: "🔄 Reanswer (based on corrected question)",
             reanswerHint: "💡 If the question was misrecognized, correct it and click to regenerate answer",
+            renderedView: "Rendered View",
+            sourceEdit: "Edit Source",
             placeholder: "Supports Markdown and LaTeX...",
         },
         notebook: {
@@ -691,6 +693,8 @@ export const translations = {
             reanswering: "AI 正在解题...",
             reanswer: "🔄 重新解题（根据校正后的题目）",
             reanswerHint: "💡 如果题目识别有误，校正题目后点击此按钮让 AI 重新生成答案和解析",
+            renderedView: "渲染视图",
+            sourceEdit: "编辑源码",
             placeholder: "支持 Markdown 和 LaTeX...",
         },
         notebook: {

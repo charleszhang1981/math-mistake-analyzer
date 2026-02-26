@@ -46,6 +46,8 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const { t, language } = useLanguage();
     const [isReanswering, setIsReanswering] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isQuestionSourceMode, setIsQuestionSourceMode] = useState(false);
+    const [isAnalysisSourceMode, setIsAnalysisSourceMode] = useState(false);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -211,13 +213,31 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     </div>
 
                     <div className="space-y-2">
-                        <Label>{t.editor.question}</Label>
-                        <Textarea
-                            value={data.questionText}
-                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setData({ ...data, questionText: e.target.value })}
-                            className="min-h-[150px] font-mono text-sm"
-                            placeholder={t.editor.placeholder || "Supports Markdown and LaTeX..."}
-                        />
+                        <div className="flex items-center justify-between">
+                            <Label>{t.editor.question}</Label>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setIsQuestionSourceMode((prev) => !prev)}
+                            >
+                                {isQuestionSourceMode
+                                    ? (t.editor?.renderedView || "Rendered View")
+                                    : (t.editor?.sourceEdit || "Edit Source")}
+                            </Button>
+                        </div>
+                        {isQuestionSourceMode ? (
+                            <Textarea
+                                value={data.questionText}
+                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setData({ ...data, questionText: e.target.value })}
+                                className="min-h-[150px] font-mono text-sm"
+                                placeholder={t.editor.placeholder || "Supports Markdown and LaTeX..."}
+                            />
+                        ) : (
+                            <div className="min-h-[150px] rounded-md border bg-muted/20 p-3">
+                                <MarkdownRenderer content={data.questionText || ""} />
+                            </div>
+                        )}
                         <Button
                             variant="default"
                             size="sm"
@@ -268,13 +288,31 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     </div>
 
                     <div className="space-y-2">
-                        <Label>{t.editor.analysis}</Label>
-                        <Textarea
-                            value={data.analysis}
-                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setData({ ...data, analysis: e.target.value })}
-                            className="min-h-[200px] font-mono text-sm"
-                            placeholder={t.editor.placeholder || "Supports Markdown and LaTeX..."}
-                        />
+                        <div className="flex items-center justify-between">
+                            <Label>{t.editor.analysis}</Label>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setIsAnalysisSourceMode((prev) => !prev)}
+                            >
+                                {isAnalysisSourceMode
+                                    ? (t.editor?.renderedView || "Rendered View")
+                                    : (t.editor?.sourceEdit || "Edit Source")}
+                            </Button>
+                        </div>
+                        {isAnalysisSourceMode ? (
+                            <Textarea
+                                value={data.analysis}
+                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setData({ ...data, analysis: e.target.value })}
+                                className="min-h-[200px] font-mono text-sm"
+                                placeholder={t.editor.placeholder || "Supports Markdown and LaTeX..."}
+                            />
+                        ) : (
+                            <div className="min-h-[200px] rounded-md border bg-muted/20 p-3">
+                                <MarkdownRenderer content={data.analysis || ""} />
+                            </div>
+                        )}
                     </div>
                 </div>
 
