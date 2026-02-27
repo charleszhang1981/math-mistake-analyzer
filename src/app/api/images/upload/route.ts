@@ -10,6 +10,18 @@ const logger = createLogger('api:images:upload');
 
 const ALLOWED_KINDS = new Set(['raw', 'crop', 'answer']);
 
+function sanitizeSessionKeyPart(raw: string): string {
+    const normalized = raw
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    if (!normalized) return 'user';
+    return normalized.slice(0, 64);
+}
+
 function inferExtension(contentType: string): string {
     switch (contentType) {
         case 'image/jpeg':
@@ -27,18 +39,43 @@ export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
+        let userIdForStorage: string | null = null;
+
         if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
+            userIdForStorage = `mail_${sanitizeSessionKeyPart(session.user.email)}`;
+            try {
+                const user = await prisma.user.findUnique({
+                    where: { email: session.user.email },
+                    select: { id: true },
+                });
+                if (user?.id) {
+                    userIdForStorage = user.id;
+                }
+            } catch (error) {
+                logger.warn(
+                    { error: error instanceof Error ? error.message : String(error), email: session.user.email },
+                    'User lookup failed for image upload; using session fallback key'
+                );
+            }
         }
 
-        if (!user) {
-            user = await prisma.user.findFirst();
+        if (!userIdForStorage) {
+            try {
+                const fallbackUser = await prisma.user.findFirst({
+                    select: { id: true },
+                });
+                if (fallbackUser?.id) {
+                    userIdForStorage = fallbackUser.id;
+                }
+            } catch (error) {
+                logger.warn(
+                    { error: error instanceof Error ? error.message : String(error) },
+                    'Fallback user lookup failed for image upload'
+                );
+            }
         }
 
-        if (!user) {
+        if (!userIdForStorage) {
             return unauthorized('No user found in DB');
         }
 
@@ -56,7 +93,7 @@ export async function POST(req: Request) {
 
         const contentType = file.type || 'application/octet-stream';
         const extension = inferExtension(contentType);
-        const key = `${kind}/${user.id}/${crypto.randomUUID()}.${extension}`;
+        const key = `${kind}/${userIdForStorage}/${crypto.randomUUID()}.${extension}`;
         const body = new Uint8Array(await file.arrayBuffer());
 
         await uploadPrivateObject({
@@ -65,18 +102,25 @@ export async function POST(req: Request) {
             contentType,
         });
 
-        const signedUrl = await createSignedObjectUrl({
-            key,
-            expiresIn: 1800,
-        });
+        let signedUrl: string | null = null;
+        try {
+            signedUrl = await createSignedObjectUrl({
+                key,
+                expiresIn: 1800,
+            });
+        } catch (error) {
+            logger.warn(
+                { key, error: error instanceof Error ? error.message : String(error) },
+                'Uploaded image but failed to create signed URL'
+            );
+        }
 
         return NextResponse.json({
             key,
             signedUrl,
         });
     } catch (error) {
-        logger.error({ error }, 'Failed to upload image');
+        logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Failed to upload image');
         return internalError('Failed to upload image');
     }
 }
-

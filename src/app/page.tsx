@@ -105,7 +105,9 @@ function HomeContent() {
             setIsCropperOpen(true);
         } catch (error) {
             frontendLogger.error('[HomeUpload]', 'Failed to upload raw image', {
-                error: error instanceof Error ? error.message : String(error)
+                error: error instanceof Error ? error.message : String(error),
+                status: typeof error === 'object' && error && 'status' in error ? (error as any).status : undefined,
+                data: typeof error === 'object' && error && 'data' in error ? (error as any).data : undefined,
             });
             alert(t.common?.messages?.saveFailed || 'Failed to upload image');
         } finally {
@@ -122,7 +124,9 @@ function HomeContent() {
             setCropImageKey(uploadResult.key);
         } catch (error) {
             frontendLogger.error('[HomeUpload]', 'Failed to upload cropped image', {
-                error: error instanceof Error ? error.message : String(error)
+                error: error instanceof Error ? error.message : String(error),
+                status: typeof error === 'object' && error && 'status' in error ? (error as any).status : undefined,
+                data: typeof error === 'object' && error && 'data' in error ? (error as any).data : undefined,
             });
             setAnalysisStep('idle');
             alert(t.common?.messages?.saveFailed || 'Failed to upload image');

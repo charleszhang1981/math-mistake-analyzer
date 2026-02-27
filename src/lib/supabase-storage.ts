@@ -28,6 +28,30 @@ interface SupabaseErrorBody {
     statusCode?: number;
 }
 
+const MAX_RETRIES = 2;
+const BASE_RETRY_DELAY_MS = 250;
+
+function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetrySupabase(status: number, message: string): boolean {
+    if (status === 408 || status === 429 || status >= 500) {
+        return true;
+    }
+
+    if (status === 400 || status === 404) {
+        const normalized = message.toLowerCase();
+        return normalized.includes('not found');
+    }
+
+    return false;
+}
+
+function retryDelayMs(attempt: number): number {
+    return BASE_RETRY_DELAY_MS * (attempt + 1);
+}
+
 async function parseSupabaseError(res: Response): Promise<string> {
     try {
         const body = (await res.json()) as SupabaseErrorBody;
@@ -49,23 +73,39 @@ export async function uploadPrivateObject(params: {
     const uploadBytes = new Uint8Array(params.body);
     const uploadBody = new Blob([uploadBytes], { type: params.contentType });
 
-    const res = await fetch(
-        `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`,
-        {
-            method: 'POST',
-            headers: {
-                apikey: serviceRoleKey,
-                Authorization: `Bearer ${serviceRoleKey}`,
-                'Content-Type': params.contentType,
-                'x-upsert': upsert,
-            },
-            body: uploadBody,
-        }
-    );
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+        const res = await fetch(
+            `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`,
+            {
+                method: 'POST',
+                headers: {
+                    apikey: serviceRoleKey,
+                    Authorization: `Bearer ${serviceRoleKey}`,
+                    'Content-Type': params.contentType,
+                    'x-upsert': upsert,
+                },
+                body: uploadBody,
+            }
+        );
 
-    if (!res.ok) {
+        if (res.ok) {
+            return;
+        }
+
         const message = await parseSupabaseError(res);
-        logger.error({ key: params.key, status: res.status, message }, 'Storage upload failed');
+        const retryable = shouldRetrySupabase(res.status, message);
+        const canRetry = retryable && attempt < MAX_RETRIES;
+        if (canRetry) {
+            const delayMs = retryDelayMs(attempt);
+            logger.warn(
+                { key: params.key, status: res.status, message, attempt: attempt + 1, delayMs },
+                'Storage upload failed with retryable status; retrying'
+            );
+            await wait(delayMs);
+            continue;
+        }
+
+        logger.error({ key: params.key, status: res.status, message, attempt: attempt + 1 }, 'Storage upload failed');
         throw new Error(`SUPABASE_STORAGE_UPLOAD_FAILED: ${message}`);
     }
 }
@@ -78,34 +118,50 @@ export async function createSignedObjectUrl(params: {
     const encodedKey = encodeStorageKey(params.key);
     const expiresIn = params.expiresIn ?? 1800;
 
-    const res = await fetch(
-        `${supabaseUrl}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodedKey}`,
-        {
-            method: 'POST',
-            headers: {
-                apikey: serviceRoleKey,
-                Authorization: `Bearer ${serviceRoleKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ expiresIn }),
-        }
-    );
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+        const res = await fetch(
+            `${supabaseUrl}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodedKey}`,
+            {
+                method: 'POST',
+                headers: {
+                    apikey: serviceRoleKey,
+                    Authorization: `Bearer ${serviceRoleKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ expiresIn }),
+            }
+        );
 
-    if (!res.ok) {
+        if (res.ok) {
+            const data = (await res.json()) as { signedURL?: string; signedUrl?: string };
+            const signedPath = data.signedURL || data.signedUrl;
+            if (!signedPath) {
+                throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Missing signed URL in response');
+            }
+
+            if (signedPath.startsWith('http://') || signedPath.startsWith('https://')) {
+                return signedPath;
+            }
+
+            return `${supabaseUrl}${signedPath}`;
+        }
+
         const message = await parseSupabaseError(res);
-        logger.error({ key: params.key, status: res.status, message }, 'Create signed URL failed');
+        const retryable = shouldRetrySupabase(res.status, message);
+        const canRetry = retryable && attempt < MAX_RETRIES;
+        if (canRetry) {
+            const delayMs = retryDelayMs(attempt);
+            logger.warn(
+                { key: params.key, status: res.status, message, attempt: attempt + 1, delayMs },
+                'Create signed URL failed with retryable status; retrying'
+            );
+            await wait(delayMs);
+            continue;
+        }
+
+        logger.error({ key: params.key, status: res.status, message, attempt: attempt + 1 }, 'Create signed URL failed');
         throw new Error(`SUPABASE_STORAGE_SIGN_FAILED: ${message}`);
     }
 
-    const data = (await res.json()) as { signedURL?: string; signedUrl?: string };
-    const signedPath = data.signedURL || data.signedUrl;
-    if (!signedPath) {
-        throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Missing signed URL in response');
-    }
-
-    if (signedPath.startsWith('http://') || signedPath.startsWith('https://')) {
-        return signedPath;
-    }
-
-    return `${supabaseUrl}${signedPath}`;
+    throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Unexpected retry loop exit');
 }

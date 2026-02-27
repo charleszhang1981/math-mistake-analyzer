@@ -4,7 +4,7 @@ export type UploadImageKind = "raw" | "crop" | "answer";
 
 export interface ImageUploadResult {
     key: string;
-    signedUrl: string;
+    signedUrl?: string | null;
 }
 
 export async function uploadImageToStorage(file: File, kind: UploadImageKind): Promise<ImageUploadResult> {
