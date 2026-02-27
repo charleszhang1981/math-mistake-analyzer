@@ -36,9 +36,17 @@ function inferExtension(contentType: string): string {
 }
 
 export async function POST(req: Request) {
-    const session = await getServerSession(authOptions);
-
     try {
+        let session = null;
+        try {
+            session = await getServerSession(authOptions);
+        } catch (error) {
+            logger.warn(
+                { error: error instanceof Error ? error.message : String(error) },
+                'Session lookup failed for image upload; continuing without session'
+            );
+        }
+
         let userIdForStorage: string | null = null;
 
         if (session?.user?.email) {

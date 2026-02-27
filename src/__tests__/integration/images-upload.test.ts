@@ -97,4 +97,15 @@ describe("/api/images/upload", () => {
         expect(response.status).toBe(400);
         expect(data.message).toBe("Invalid upload kind");
     });
+
+    it("continues when session lookup throws and still uploads via fallback user", async () => {
+        vi.mocked(getServerSession).mockRejectedValue(new Error("session store unavailable"));
+
+        const response = await POST(buildUploadRequest("raw"));
+        const data = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.key).toMatch(/^raw\/fallback-user-1\//);
+        expect(mocks.mockPrismaUser.findFirst).toHaveBeenCalledTimes(1);
+    });
 });
