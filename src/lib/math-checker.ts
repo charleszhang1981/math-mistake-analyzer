@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-// Milestone 4 execution decision:
-// Phase A (now): in-process Node rule checker for fast MVP delivery.
-// Phase B (later): replace/augment with Math-Verify service for broader coverage.
-
-const CHECKER_ENGINE = "rule_v1" as const;
+const CHECKER_ENGINE = "rule_v2" as const;
+const LEGACY_CHECKER_ENGINE = "rule_v1" as const;
 
 const CheckerIntermediateSchema = z.object({
     name: z.string().min(1),
@@ -18,8 +15,10 @@ const CheckerTypeSchema = z.enum([
     "unknown",
 ]);
 
+const CheckerEngineSchema = z.enum([LEGACY_CHECKER_ENGINE, CHECKER_ENGINE]);
+
 export const CheckerJsonSchema = z.object({
-    engine: z.literal(CHECKER_ENGINE),
+    engine: CheckerEngineSchema,
     type: CheckerTypeSchema,
     checkable: z.boolean(),
     standard_answer: z.string().nullable(),
@@ -36,8 +35,10 @@ const DiagnosisCandidateSchema = z.object({
     questions_to_ask: z.array(z.string()),
 });
 
+const DiagnosisEngineSchema = z.enum([LEGACY_CHECKER_ENGINE, CHECKER_ENGINE]);
+
 export const DiagnosisJsonSchema = z.object({
-    version: z.literal(CHECKER_ENGINE),
+    version: DiagnosisEngineSchema,
     candidates: z.array(DiagnosisCandidateSchema),
     finalCause: z.string().nullable().optional(),
 });
@@ -47,13 +48,24 @@ export type DiagnosisJson = z.infer<typeof DiagnosisJsonSchema>;
 
 type CheckerInput = {
     questionText?: string | null;
-    answerText?: string | null;
+    answerText?: string | null; // standard answer
+    studentAnswerText?: string | null;
+    structuredJson?: unknown;
+    verificationMode?: "student" | "answer";
 };
 
 type DiagnosisInput = {
     questionText?: string | null;
     answerText?: string | null;
+    studentAnswerText?: string | null;
     analysis?: string | null;
+    structuredJson?: unknown;
+};
+
+type ParsedAnswer = {
+    raw: string | null;
+    numeric: number | null;
+    fraction: Fraction | null;
 };
 
 const BIGINT_ZERO = BigInt(0);
@@ -91,11 +103,31 @@ class Fraction {
 
         const fractionMatch = text.match(/^([+-]?\d+)\s*\/\s*([+-]?\d+)$/);
         if (fractionMatch) {
-            return new Fraction(BigInt(fractionMatch[1]), BigInt(fractionMatch[2]));
+            try {
+                return new Fraction(BigInt(fractionMatch[1]), BigInt(fractionMatch[2]));
+            } catch {
+                return null;
+            }
+        }
+
+        const decimalMatch = text.match(/^([+-]?\d+)\.(\d+)$/);
+        if (decimalMatch) {
+            const intPart = decimalMatch[1];
+            const decPart = decimalMatch[2];
+            const sign = intPart.startsWith("-") ? -1n : 1n;
+            const absInt = BigInt(intPart.replace("+", "").replace("-", ""));
+            const denominator = BigInt(`1${"0".repeat(decPart.length)}`);
+            const decimal = BigInt(decPart);
+            const numerator = sign * (absInt * denominator + decimal);
+            return new Fraction(numerator, denominator);
         }
 
         if (/^[+-]?\d+$/.test(text)) {
-            return new Fraction(BigInt(text), BIGINT_ONE);
+            try {
+                return new Fraction(BigInt(text), BIGINT_ONE);
+            } catch {
+                return null;
+            }
         }
 
         return null;
@@ -117,12 +149,24 @@ class Fraction {
         return new Fraction(this.n * other.d, this.d * other.n);
     }
 
-    equals(other: Fraction): boolean {
-        return this.n === other.n && this.d === other.d;
-    }
-
     reciprocal(): Fraction {
         return new Fraction(this.d, this.n);
+    }
+
+    pow(exp: number): Fraction | null {
+        if (!Number.isInteger(exp) || Math.abs(exp) > 12) return null;
+        if (exp === 0) return new Fraction(BIGINT_ONE, BIGINT_ONE);
+
+        const positiveExp = Math.abs(exp);
+        let result = new Fraction(BIGINT_ONE, BIGINT_ONE);
+        for (let i = 0; i < positiveExp; i++) {
+            result = result.mul(this);
+        }
+        return exp > 0 ? result : result.reciprocal();
+    }
+
+    equals(other: Fraction): boolean {
+        return this.n === other.n && this.d === other.d;
     }
 
     toNumber(): number {
@@ -136,13 +180,10 @@ class Fraction {
 }
 
 function parseNumberOrFraction(raw: string): number | null {
-    const text = raw.trim();
-    if (!text) return null;
-
-    const asFraction = Fraction.fromString(text);
+    const asFraction = Fraction.fromString(raw);
     if (asFraction) return asFraction.toNumber();
 
-    const asNumber = Number(text);
+    const asNumber = Number(raw);
     return Number.isFinite(asNumber) ? asNumber : null;
 }
 
@@ -160,38 +201,121 @@ function formatNumber(value: number): string {
     return `${Number(value.toFixed(8))}`;
 }
 
-function parseStudentAnswerNumber(answerText: string): { raw: string | null; value: number | null } {
-    const directMatch = answerText.match(/x\s*=\s*([+-]?\d+(?:\.\d+)?(?:\/\d+)?)/i);
-    if (directMatch) {
-        return {
-            raw: directMatch[1],
-            value: parseNumberOrFraction(directMatch[1]),
-        };
+function approxEqual(a: number, b: number): boolean {
+    return Math.abs(a - b) < 1e-8;
+}
+
+function extractStudentAnswerFromStructuredJson(structuredJson: unknown): string | null {
+    if (!structuredJson || typeof structuredJson !== "object") {
+        return null;
     }
 
-    const numberLikeMatch = answerText.match(/([+-]?\d+(?:\.\d+)?(?:\/\d+)?)/);
-    if (numberLikeMatch) {
-        return {
-            raw: numberLikeMatch[1],
-            value: parseNumberOrFraction(numberLikeMatch[1]),
-        };
+    const maybeMistake = (structuredJson as Record<string, unknown>).mistake;
+    if (!maybeMistake || typeof maybeMistake !== "object") {
+        return null;
     }
 
-    return { raw: null, value: null };
+    const studentAnswer = (maybeMistake as Record<string, unknown>).studentAnswer;
+    if (typeof studentAnswer === "string" && studentAnswer.trim().length > 0) {
+        return studentAnswer.trim();
+    }
+
+    return null;
+}
+
+function parseAnswerCandidate(text: string | null | undefined): ParsedAnswer {
+    const source = text?.trim() || "";
+    if (!source) {
+        return { raw: null, numeric: null, fraction: null };
+    }
+
+    const patterns = [
+        /(?:x|y)\s*=\s*([+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+)?)/i,
+        /=\s*([+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+)?)/,
+        /([+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+)?)/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = source.match(pattern);
+        if (!match) continue;
+        const raw = match[1].replace(/\s+/g, "");
+        const fraction = Fraction.fromString(raw);
+        const numeric = fraction ? fraction.toNumber() : parseNumberOrFraction(raw);
+        return { raw, numeric, fraction };
+    }
+
+    return { raw: null, numeric: null, fraction: null };
+}
+
+function normalizeMathExpression(raw: string): string {
+    let expr = raw
+        .replace(/\$/g, "")
+        .replace(/\\left|\\right/g, "")
+        .replace(/\\times|\\cdot|×/g, "*")
+        .replace(/\\div|÷/g, "/")
+        .replace(/[［\[]/g, "(")
+        .replace(/[］\]]/g, ")")
+        .replace(/[{}]/g, (char) => (char === "{" ? "(" : ")"))
+        .replace(/[−–—]/g, "-")
+        .replace(/\s+/g, "");
+
+    // Expand simple latex fractions repeatedly.
+    for (let i = 0; i < 8; i++) {
+        const next = expr.replace(/\\frac\(([^()]+)\)\(([^()]+)\)/g, "(($1)/($2))");
+        if (next === expr) break;
+        expr = next;
+    }
+    for (let i = 0; i < 8; i++) {
+        const next = expr.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "(($1)/($2))");
+        if (next === expr) break;
+        expr = next;
+    }
+
+    // Insert implicit multiplication: 2(3+4) and )(.
+    expr = expr
+        .replace(/(\d|\))\(/g, "$1*(")
+        .replace(/\)(\d)/g, ")*$1");
+
+    return expr;
+}
+
+function extractFractionExpression(questionText: string): string | null {
+    const normalized = questionText.trim();
+    if (!normalized) return null;
+
+    const direct = normalized.match(/(.+?)\s*=\s*[?？]/);
+    if (direct?.[1]) {
+        return direct[1].trim();
+    }
+
+    const lineCandidates = normalized
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /\d/.test(line) && /[+\-*/^÷×\\]/.test(line));
+
+    if (lineCandidates.length > 0) {
+        return lineCandidates.sort((a, b) => b.length - a.length)[0];
+    }
+
+    const chunkCandidates = normalized
+        .match(/[0-9+\-*/^÷×\\\[\](){}.\s]{5,}/g)
+        ?.map((chunk) => chunk.trim())
+        .filter((chunk) => /\d/.test(chunk) && /[+\-*/^÷×\\]/.test(chunk));
+
+    if (!chunkCandidates || chunkCandidates.length === 0) return null;
+    return chunkCandidates.sort((a, b) => b.length - a.length)[0];
 }
 
 function tokenizeExpression(raw: string): string[] | null {
-    const compact = raw
-        .replace(/[×xX]/g, "*")
-        .replace(/[÷]/g, "/")
-        .replace(/[，。；：！？=?？]/g, " ")
-        .replace(/\s+/g, "");
-
+    const compact = normalizeMathExpression(raw);
     if (!compact) return null;
-    if (!/[+\-*/]/.test(compact)) return null;
-    if (!/^\d|[+\-*/()]/.test(compact)) return null;
 
-    const tokenRegex = /(\d+\/\d+|\d+|[+\-*/()])/g;
+    // Any remaining letters make this expression unsafe for deterministic checking.
+    if (/[A-Za-z\u4e00-\u9fff]/.test(compact)) {
+        return null;
+    }
+
+    const tokenRegex = /(\d+\/\d+|\d+\.\d+|\d+|[+\-*/^()])/g;
     const tokens = compact.match(tokenRegex);
     if (!tokens || tokens.join("") !== compact) return null;
     return tokens;
@@ -200,11 +324,12 @@ function tokenizeExpression(raw: string): string[] | null {
 function toRpn(tokens: string[]): string[] | null {
     const output: string[] = [];
     const operators: string[] = [];
-    const precedence: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2 };
+    const precedence: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2, "^": 3 };
+    const rightAssociative = new Set(["^"]);
     let prevToken: string | null = null;
 
     for (const token of tokens) {
-        if (/^\d+\/\d+$|^\d+$/.test(token)) {
+        if (/^\d+\/\d+$|^\d+\.\d+$|^\d+$/.test(token)) {
             output.push(token);
             prevToken = token;
             continue;
@@ -226,24 +351,35 @@ function toRpn(tokens: string[]): string[] | null {
             continue;
         }
 
-        if (["+","-","*","/"].includes(token)) {
-            if (token === "-" && (prevToken === null || ["(", "+", "-", "*", "/"].includes(prevToken))) {
-                output.push("0");
-            }
-
-            while (
-                operators.length > 0 &&
-                operators[operators.length - 1] !== "(" &&
-                precedence[operators[operators.length - 1]] >= precedence[token]
-            ) {
-                output.push(operators.pop()!);
-            }
-            operators.push(token);
-            prevToken = token;
-            continue;
+        if (!["+", "-", "*", "/", "^"].includes(token)) {
+            return null;
         }
 
-        return null;
+        if ((token === "+" || token === "-") && (prevToken === null || ["(", "+", "-", "*", "/", "^"].includes(prevToken))) {
+            // Unary operator: "+a" => "a", "-a" => "0 a -"
+            if (token === "+") {
+                prevToken = token;
+                continue;
+            }
+            output.push("0");
+        }
+
+        while (
+            operators.length > 0 &&
+            operators[operators.length - 1] !== "(" &&
+            (
+                precedence[operators[operators.length - 1]] > precedence[token] ||
+                (
+                    precedence[operators[operators.length - 1]] === precedence[token] &&
+                    !rightAssociative.has(token)
+                )
+            )
+        ) {
+            output.push(operators.pop()!);
+        }
+
+        operators.push(token);
+        prevToken = token;
     }
 
     while (operators.length > 0) {
@@ -257,8 +393,9 @@ function toRpn(tokens: string[]): string[] | null {
 
 function evaluateRpn(tokens: string[]): Fraction | null {
     const stack: Fraction[] = [];
+
     for (const token of tokens) {
-        if (/^\d+\/\d+$|^\d+$/.test(token)) {
+        if (/^\d+\/\d+$|^\d+\.\d+$|^\d+$/.test(token)) {
             const parsed = Fraction.fromString(token);
             if (!parsed) return null;
             stack.push(parsed);
@@ -270,11 +407,23 @@ function evaluateRpn(tokens: string[]): Fraction | null {
         if (!left || !right) return null;
 
         try {
-            if (token === "+") stack.push(left.add(right));
-            else if (token === "-") stack.push(left.sub(right));
-            else if (token === "*") stack.push(left.mul(right));
-            else if (token === "/") stack.push(left.div(right));
-            else return null;
+            if (token === "+") {
+                stack.push(left.add(right));
+            } else if (token === "-") {
+                stack.push(left.sub(right));
+            } else if (token === "*") {
+                stack.push(left.mul(right));
+            } else if (token === "/") {
+                stack.push(left.div(right));
+            } else if (token === "^") {
+                if (right.d !== BIGINT_ONE) return null;
+                const exp = Number(right.n);
+                const powered = left.pow(exp);
+                if (!powered) return null;
+                stack.push(powered);
+            } else {
+                return null;
+            }
         } catch {
             return null;
         }
@@ -283,37 +432,35 @@ function evaluateRpn(tokens: string[]): Fraction | null {
     return stack.length === 1 ? stack[0] : null;
 }
 
-function extractFractionExpression(questionText: string): string | null {
-    const directExpression = questionText.match(/([0-9+\-*/()\s\/]+)\s*=\s*[?？]/);
-    if (directExpression?.[1]) {
-        return directExpression[1].trim();
-    }
-
-    const chunks = questionText.match(/[0-9+\-*/()\s\/]{5,}/g);
-    if (!chunks) return null;
-
-    const candidate = chunks
-        .map((chunk) => chunk.trim())
-        .filter((chunk) => /[+\-*/]/.test(chunk))
-        .sort((a, b) => b.length - a.length)[0];
-
-    return candidate || null;
-}
-
-function buildUnknownChecker(reason: string): CheckerJson {
+function buildTypedUncheckableChecker(
+    type: z.infer<typeof CheckerTypeSchema>,
+    reason: string,
+    standardAnswer: string | null,
+    studentAnswer: string | null,
+    intermediates: Array<{ name: string; value: string }> = [],
+): CheckerJson {
     return {
         engine: CHECKER_ENGINE,
-        type: "unknown",
+        type,
         checkable: false,
-        standard_answer: null,
-        student_answer: null,
+        standard_answer: standardAnswer,
+        student_answer: studentAnswer,
         is_correct: null,
         diff: reason,
-        key_intermediates: [],
+        key_intermediates: intermediates,
     };
 }
 
-function buildLinearEquationChecker(questionText: string, answerText: string): CheckerJson | null {
+function buildUnknownChecker(reason: string): CheckerJson {
+    return buildTypedUncheckableChecker("unknown", reason, null, null);
+}
+
+function buildLinearEquationChecker(
+    questionText: string,
+    standardAnswerText: string,
+    studentAnswerText: string | null,
+    verificationMode: "student" | "answer",
+): CheckerJson | null {
     const compact = questionText.replace(/\s+/g, "");
     const match = compact.match(/([+-]?\d*\.?\d*)x([+-]\d*\.?\d+)?=([+-]?\d*\.?\d+)/i);
     if (!match) return null;
@@ -322,25 +469,47 @@ function buildLinearEquationChecker(questionText: string, answerText: string): C
     const b = normalizeEquationCoefficient(match[2], 0);
     const c = Number(match[3]);
     if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c) || Math.abs(a) < 1e-10) {
-        return null;
+        return buildTypedUncheckableChecker("linear_equation", "Equation is not numerically stable for checking.", null, null);
     }
 
     const standard = (c - b) / a;
-    const student = parseStudentAnswerNumber(answerText);
-    const isCorrect = student.value !== null ? Math.abs(student.value - standard) < 1e-8 : null;
+    const parsedStandard = parseAnswerCandidate(standardAnswerText);
+    const parsedStudent = parseAnswerCandidate(studentAnswerText);
+    const standardLabel = formatNumber(standard);
+
+    if (parsedStandard.numeric !== null && !approxEqual(parsedStandard.numeric, standard)) {
+        return buildTypedUncheckableChecker(
+            "linear_equation",
+            `Provided standard answer (${parsedStandard.raw}) conflicts with equation result (${standardLabel}).`,
+            standardLabel,
+            parsedStudent.raw,
+            [
+                { name: "a", value: formatNumber(a) },
+                { name: "b", value: formatNumber(b) },
+                { name: "c", value: formatNumber(c) },
+            ],
+        );
+    }
+
+    const target = verificationMode === "answer" ? parsedStandard : parsedStudent;
+    const isCorrect = target.numeric !== null ? approxEqual(target.numeric, standard) : null;
 
     return {
         engine: CHECKER_ENGINE,
         type: "linear_equation",
         checkable: true,
-        standard_answer: formatNumber(standard),
-        student_answer: student.raw,
+        standard_answer: standardLabel,
+        student_answer: parsedStudent.raw,
         is_correct: isCorrect,
         diff: isCorrect === true
             ? null
-            : student.raw
-                ? `Expected x = ${formatNumber(standard)}, got x = ${student.raw}`
-                : "Could not parse student answer for x.",
+            : target.raw
+                ? verificationMode === "answer"
+                    ? `Expected x = ${standardLabel}, but provided answer is x = ${target.raw}.`
+                    : `Expected x = ${standardLabel}, student got x = ${target.raw}.`
+                : verificationMode === "answer"
+                    ? "Could not parse provided answer for x."
+                    : "Student answer unavailable or unparseable for x.",
         key_intermediates: [
             { name: "a", value: formatNumber(a) },
             { name: "b", value: formatNumber(b) },
@@ -349,7 +518,12 @@ function buildLinearEquationChecker(questionText: string, answerText: string): C
     };
 }
 
-function buildRatioChecker(questionText: string, answerText: string): CheckerJson | null {
+function buildRatioChecker(
+    questionText: string,
+    standardAnswerText: string,
+    studentAnswerText: string | null,
+    verificationMode: "student" | "answer",
+): CheckerJson | null {
     const compact = questionText.replace(/\s+/g, "");
     let standard: number | null = null;
     let intermediates: Array<{ name: string; value: string }> = [];
@@ -400,9 +574,10 @@ function buildRatioChecker(questionText: string, answerText: string): CheckerJso
     for (const pattern of patterns) {
         const match = compact.match(pattern.regex);
         if (!match) continue;
-
         const solved = pattern.solve(match);
-        if (!Number.isFinite(solved)) return null;
+        if (!Number.isFinite(solved)) {
+            return buildTypedUncheckableChecker("ratio", "Ratio equation produced non-finite result.", null, null);
+        }
         standard = solved;
         intermediates = pattern.intermediates(match);
         break;
@@ -410,88 +585,204 @@ function buildRatioChecker(questionText: string, answerText: string): CheckerJso
 
     if (standard === null) return null;
 
-    const student = parseStudentAnswerNumber(answerText);
-    const isCorrect = student.value !== null ? Math.abs(student.value - standard) < 1e-8 : null;
+    const parsedStandard = parseAnswerCandidate(standardAnswerText);
+    const parsedStudent = parseAnswerCandidate(studentAnswerText);
+    const standardLabel = formatNumber(standard);
+
+    if (parsedStandard.numeric !== null && !approxEqual(parsedStandard.numeric, standard)) {
+        return buildTypedUncheckableChecker(
+            "ratio",
+            `Provided standard answer (${parsedStandard.raw}) conflicts with ratio result (${standardLabel}).`,
+            standardLabel,
+            parsedStudent.raw,
+            intermediates,
+        );
+    }
+
+    const target = verificationMode === "answer" ? parsedStandard : parsedStudent;
+    const isCorrect = target.numeric !== null ? approxEqual(target.numeric, standard) : null;
 
     return {
         engine: CHECKER_ENGINE,
         type: "ratio",
         checkable: true,
-        standard_answer: formatNumber(standard),
-        student_answer: student.raw,
+        standard_answer: standardLabel,
+        student_answer: parsedStudent.raw,
         is_correct: isCorrect,
         diff: isCorrect === true
             ? null
-            : student.raw
-                ? `Expected x = ${formatNumber(standard)}, got x = ${student.raw}`
-                : "Could not parse student answer for x.",
+            : target.raw
+                ? verificationMode === "answer"
+                    ? `Expected x = ${standardLabel}, but provided answer is x = ${target.raw}.`
+                    : `Expected x = ${standardLabel}, student got x = ${target.raw}.`
+                : verificationMode === "answer"
+                    ? "Could not parse provided ratio answer."
+                    : "Student ratio answer unavailable or unparseable.",
         key_intermediates: intermediates,
     };
 }
 
-function buildFractionChecker(questionText: string, answerText: string): CheckerJson | null {
+function buildFractionChecker(
+    questionText: string,
+    standardAnswerText: string,
+    studentAnswerText: string | null,
+    verificationMode: "student" | "answer",
+): CheckerJson | null {
     const expression = extractFractionExpression(questionText);
     if (!expression) return null;
 
     const tokens = tokenizeExpression(expression);
-    if (!tokens) return null;
+    if (!tokens) {
+        return buildTypedUncheckableChecker(
+            "fraction_arithmetic",
+            "Expression contains unsupported symbols; downgraded to uncheckable.",
+            null,
+            parseAnswerCandidate(studentAnswerText).raw,
+            [{ name: "expression", value: expression }],
+        );
+    }
 
     const rpn = toRpn(tokens);
-    if (!rpn) return null;
+    if (!rpn) {
+        return buildTypedUncheckableChecker(
+            "fraction_arithmetic",
+            "Expression parser could not build a stable execution order.",
+            null,
+            parseAnswerCandidate(studentAnswerText).raw,
+            [{ name: "expression", value: normalizeMathExpression(expression) }],
+        );
+    }
 
-    const standard = evaluateRpn(rpn);
-    if (!standard) return null;
+    const evaluated = evaluateRpn(rpn);
+    if (!evaluated) {
+        return buildTypedUncheckableChecker(
+            "fraction_arithmetic",
+            "Expression evaluator failed; downgraded to uncheckable.",
+            null,
+            parseAnswerCandidate(studentAnswerText).raw,
+            [{ name: "expression", value: normalizeMathExpression(expression) }],
+        );
+    }
 
-    const studentRaw = parseStudentAnswerNumber(answerText).raw;
-    const studentFraction = studentRaw ? Fraction.fromString(studentRaw) : null;
-    const isCorrect = studentFraction ? studentFraction.equals(standard) : null;
+    const parsedStandard = parseAnswerCandidate(standardAnswerText);
+    const parsedStudent = parseAnswerCandidate(studentAnswerText);
+    const standardFromExpression = evaluated.toAnswerString();
+
+    if (parsedStandard.fraction && !parsedStandard.fraction.equals(evaluated)) {
+        return buildTypedUncheckableChecker(
+            "fraction_arithmetic",
+            `Provided standard answer (${parsedStandard.raw}) conflicts with computed expression result (${standardFromExpression}).`,
+            standardFromExpression,
+            parsedStudent.raw,
+            [{ name: "expression", value: normalizeMathExpression(expression) }],
+        );
+    }
+
+    if (parsedStandard.numeric !== null && !approxEqual(parsedStandard.numeric, evaluated.toNumber())) {
+        return buildTypedUncheckableChecker(
+            "fraction_arithmetic",
+            `Provided standard answer (${parsedStandard.raw}) conflicts with computed expression result (${standardFromExpression}).`,
+            standardFromExpression,
+            parsedStudent.raw,
+            [{ name: "expression", value: normalizeMathExpression(expression) }],
+        );
+    }
+
+    const target = verificationMode === "answer" ? parsedStandard : parsedStudent;
+    let isCorrect: boolean | null = null;
+    if (target.fraction) {
+        isCorrect = target.fraction.equals(evaluated);
+    } else if (target.numeric !== null) {
+        isCorrect = approxEqual(target.numeric, evaluated.toNumber());
+    }
 
     return {
         engine: CHECKER_ENGINE,
         type: "fraction_arithmetic",
         checkable: true,
-        standard_answer: standard.toAnswerString(),
-        student_answer: studentRaw,
+        standard_answer: standardFromExpression,
+        student_answer: parsedStudent.raw,
         is_correct: isCorrect,
         diff: isCorrect === true
             ? null
-            : studentRaw
-                ? `Expected ${standard.toAnswerString()}, got ${studentRaw}`
-                : "Could not parse student answer as fraction or integer.",
+            : target.raw
+                ? verificationMode === "answer"
+                    ? `Expected ${standardFromExpression}, but provided answer is ${target.raw}.`
+                    : `Expected ${standardFromExpression}, student got ${target.raw}.`
+                : verificationMode === "answer"
+                    ? "Could not parse provided answer as number/fraction."
+                    : "Student answer unavailable or unparseable as number/fraction.",
         key_intermediates: [
-            { name: "expression", value: expression.replace(/\s+/g, "") },
+            { name: "expression", value: normalizeMathExpression(expression) },
         ],
     };
 }
 
+function extractStepEvidence(context: DiagnosisInput): string | null {
+    const fromStructured = (() => {
+        const structured = context.structuredJson;
+        if (!structured || typeof structured !== "object") return null;
+        const maybeMistake = (structured as Record<string, unknown>).mistake;
+        if (!maybeMistake || typeof maybeMistake !== "object") return null;
+        const steps = (maybeMistake as Record<string, unknown>).studentSteps;
+        if (!Array.isArray(steps)) return null;
+        const firstText = steps.find((entry) => typeof entry === "string" && entry.trim().length > 0);
+        return typeof firstText === "string" ? firstText.trim() : null;
+    })();
+
+    if (fromStructured) return fromStructured.slice(0, 160);
+
+    const fromAnalysis = context.analysis
+        ?.split(/\r?\n|[。.!?]/)
+        .map((segment) => segment.trim())
+        .find((segment) => segment.length > 0);
+
+    return fromAnalysis ? fromAnalysis.slice(0, 160) : null;
+}
+
 function buildDiagnosisCandidate(
     checker: CheckerJson,
-    context: DiagnosisInput
+    context: DiagnosisInput,
 ): z.infer<typeof DiagnosisCandidateSchema> {
     const standard = checker.standard_answer ?? "N/A";
     const student = checker.student_answer ?? "N/A";
-    const evidence = checker.diff
-        ? `${checker.diff}`
+    const stepEvidence = extractStepEvidence(context);
+    const evidenceBase = checker.diff
+        ? checker.diff
         : `standard=${standard}; student=${student}`;
+    const evidence = stepEvidence
+        ? `${evidenceBase}; step=${stepEvidence}`
+        : evidenceBase;
 
     if (!checker.checkable) {
         return {
-            cause: "题型暂不支持自动判定",
+            cause: "Not safely checkable",
             trigger: "manual_review",
-            evidence: context.questionText?.slice(0, 120) || "No parseable math pattern found.",
+            evidence: context.questionText?.slice(0, 120) || "No parseable deterministic pattern found.",
             questions_to_ask: [
-                "你能把关键计算步骤再写一遍吗？",
+                "Can you rewrite your key calculation steps clearly?",
+            ],
+        };
+    }
+
+    if (checker.is_correct === null) {
+        return {
+            cause: "Student answer missing",
+            trigger: "missing_student_answer",
+            evidence,
+            questions_to_ask: [
+                "What is your final answer before we compare reasoning?",
             ],
         };
     }
 
     if (checker.is_correct === true) {
         return {
-            cause: "结果正确，可能是过程性错误",
+            cause: "Result appears correct; verify process-level mistakes",
             trigger: "process_mistake",
             evidence,
             questions_to_ask: [
-                "你是哪一步开始不确定的？",
+                "Which step felt uncertain when you solved it?",
             ],
         };
     }
@@ -502,24 +793,24 @@ function buildDiagnosisCandidate(
         if (
             standardNumber !== null &&
             studentNumber !== null &&
-            Math.abs(standardNumber + studentNumber) < 1e-8
+            approxEqual(standardNumber + studentNumber, 0)
         ) {
             return {
-                cause: "移项变号错误",
+                cause: "Sign error when moving terms",
                 trigger: "sign_error",
                 evidence,
                 questions_to_ask: [
-                    "移项时符号是否同时改变了？",
+                    "Did you flip the sign when moving a term across '='?",
                 ],
             };
         }
 
         return {
-            cause: "方程求解计算错误",
+            cause: "Equation solving arithmetic error",
             trigger: "equation_calc",
             evidence,
             questions_to_ask: [
-                "请检查等式两边同加减后的结果。",
+                "Can you re-check each transformation from one line to the next?",
             ],
         };
     }
@@ -533,42 +824,42 @@ function buildDiagnosisCandidate(
             studentFraction.equals(standardFraction.reciprocal())
         ) {
             return {
-                cause: "分子分母颠倒（倒数错误）",
+                cause: "Reciprocal inversion mistake",
                 trigger: "fraction_reciprocal",
                 evidence,
                 questions_to_ask: [
-                    "这里为什么把结果写成倒数了？",
+                    "Why did the numerator and denominator swap at this step?",
                 ],
             };
         }
 
         return {
-            cause: "分数运算或通分错误",
+            cause: "Fraction operation or common-denominator error",
             trigger: "fraction_calc",
             evidence,
             questions_to_ask: [
-                "通分后分子分母分别是多少？",
+                "After finding a common denominator, what numerator did you get?",
             ],
         };
     }
 
     if (checker.type === "ratio") {
         return {
-            cause: "比例式求解错误",
+            cause: "Proportion solving error",
             trigger: "ratio_calc",
             evidence,
             questions_to_ask: [
-                "交叉相乘后你得到的式子是什么？",
+                "What equation did you write after cross multiplication?",
             ],
         };
     }
 
     return {
-        cause: "计算过程错误",
+        cause: "General arithmetic/process error",
         trigger: "general_calc",
         evidence,
         questions_to_ask: [
-            "请再核对一遍每一步运算。",
+            "Can you verify each intermediate step again?",
         ],
     };
 }
@@ -576,22 +867,24 @@ function buildDiagnosisCandidate(
 export function buildCheckerJson(input: CheckerInput): CheckerJson {
     const questionText = input.questionText?.trim() || "";
     const answerText = input.answerText?.trim() || "";
+    const studentAnswerText = (input.studentAnswerText?.trim() || extractStudentAnswerFromStructuredJson(input.structuredJson) || null);
+    const verificationMode = input.verificationMode || "student";
 
     if (!questionText || !answerText) {
         return buildUnknownChecker("Insufficient question/answer text for checking.");
     }
 
     return (
-        buildLinearEquationChecker(questionText, answerText) ||
-        buildRatioChecker(questionText, answerText) ||
-        buildFractionChecker(questionText, answerText) ||
+        buildLinearEquationChecker(questionText, answerText, studentAnswerText, verificationMode) ||
+        buildRatioChecker(questionText, answerText, studentAnswerText, verificationMode) ||
+        buildFractionChecker(questionText, answerText, studentAnswerText, verificationMode) ||
         buildUnknownChecker("Unsupported pattern for current checker.")
     );
 }
 
 export function buildDiagnosisJson(
     input: DiagnosisInput,
-    checker: CheckerJson
+    checker: CheckerJson,
 ): DiagnosisJson {
     return {
         version: CHECKER_ENGINE,

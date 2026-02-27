@@ -482,10 +482,10 @@ describe('/api/error-items', () => {
                     data: expect.objectContaining({
                         checkerJson: expect.objectContaining({
                             type: 'linear_equation',
-                            checkable: true,
+                            checkable: false,
                             standard_answer: '3',
-                            student_answer: '4',
-                            is_correct: false,
+                            student_answer: null,
+                            is_correct: null,
                         }),
                         diagnosisJson: expect.objectContaining({
                             candidates: expect.any(Array),

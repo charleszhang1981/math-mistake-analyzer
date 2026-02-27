@@ -66,6 +66,7 @@ export async function POST(req: Request) {
             const checker = buildCheckerJson({
                 questionText: similarQuestion.questionText,
                 answerText: similarQuestion.answerText,
+                verificationMode: "answer",
             });
 
             if (checker.checkable && checker.is_correct === true) {
