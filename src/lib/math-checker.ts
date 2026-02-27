@@ -114,7 +114,7 @@ class Fraction {
         if (decimalMatch) {
             const intPart = decimalMatch[1];
             const decPart = decimalMatch[2];
-            const sign = intPart.startsWith("-") ? -1n : 1n;
+            const sign = intPart.startsWith("-") ? BIGINT_NEG_ONE : BIGINT_ONE;
             const absInt = BigInt(intPart.replace("+", "").replace("-", ""));
             const denominator = BigInt(`1${"0".repeat(decPart.length)}`);
             const decimal = BigInt(decPart);

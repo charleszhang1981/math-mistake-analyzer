@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X, MessageSquare, Send } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/api-client";
 import { UserProfile } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import type { CheckerJson, DiagnosisJson } from "@/lib/math-checker";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface KnowledgeTag {
     id: string;
@@ -60,6 +61,10 @@ export default function ErrorDetailPage() {
     const [paperLevelInput, setPaperLevelInput] = useState("a");
     const [isEditingDiagnosis, setIsEditingDiagnosis] = useState(false);
     const [diagnosisFinalCauseInput, setDiagnosisFinalCauseInput] = useState("");
+    const [isRootCauseDialogOpen, setIsRootCauseDialogOpen] = useState(false);
+    const [rootCauseInput, setRootCauseInput] = useState("");
+    const [rootCauseTurns, setRootCauseTurns] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+    const [isSendingRootCause, setIsSendingRootCause] = useState(false);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
@@ -242,6 +247,46 @@ export default function ErrorDetailPage() {
         }
     };
 
+    const openRootCauseDialog = () => {
+        setRootCauseInput("");
+        setRootCauseTurns([]);
+        setIsRootCauseDialogOpen(true);
+    };
+
+    const sendRootCauseMessage = async () => {
+        if (!item || !rootCauseInput.trim() || isSendingRootCause) return;
+
+        const userTurn = { role: "user" as const, content: rootCauseInput.trim() };
+        const nextTurns = [...rootCauseTurns, userTurn];
+
+        setRootCauseTurns(nextTurns);
+        setRootCauseInput("");
+        setIsSendingRootCause(true);
+
+        try {
+            const reply = await apiClient.post<{ assistantQuestion: string; summaryDraft: string }>(
+                `/api/error-items/${item.id}/root-cause-chat`,
+                { turns: nextTurns },
+            );
+
+            const assistantText = reply.assistantQuestion?.trim();
+            if (assistantText) {
+                setRootCauseTurns((prev) => [...prev, { role: "assistant", content: assistantText }]);
+            }
+
+            const hasConfirmedFinalCause = Boolean(item.diagnosisJson?.finalCause?.trim());
+            if (reply.summaryDraft && !hasConfirmedFinalCause) {
+                setDiagnosisFinalCauseInput((prev) => prev.trim() || reply.summaryDraft);
+                setIsEditingDiagnosis(true);
+            }
+        } catch (error) {
+            console.error(error);
+            alert(t.common?.messages?.saveFailed || "Request failed");
+        } finally {
+            setIsSendingRootCause(false);
+        }
+    };
+
     const [isEditingQuestion, setIsEditingQuestion] = useState(false);
     const [questionInput, setQuestionInput] = useState("");
 
@@ -358,7 +403,6 @@ export default function ErrorDetailPage() {
 
     const checker = item.checkerJson || null;
     const diagnosis = item.diagnosisJson || null;
-    const diagnosisCandidates = diagnosis?.candidates || [];
     const detailLabels = t.detail as Record<string, string | undefined>;
     const detailText = (key: string, fallback: string) => detailLabels?.[key] || fallback;
 
@@ -822,62 +866,34 @@ export default function ErrorDetailPage() {
                             <CardHeader>
                                 <div className="flex justify-between items-center">
                                     <CardTitle>{detailText("diagnosis", "Diagnosis")}</CardTitle>
-                                    {diagnosis && !isEditingDiagnosis && (
-                                        <Button variant="ghost" size="sm" onClick={startEditingDiagnosis}>
-                                            <Edit className="h-4 w-4 mr-1" />
-                                            {t.common?.edit || "Edit"}
+                                    <div className="flex items-center gap-2">
+                                        <Button variant="outline" size="sm" onClick={openRootCauseDialog}>
+                                            <MessageSquare className="h-4 w-4 mr-1" />
+                                            {detailText("followup", "Root-Cause Chat")}
                                         </Button>
-                                    )}
+                                        {diagnosis && !isEditingDiagnosis && (
+                                            <Button variant="ghost" size="sm" onClick={startEditingDiagnosis}>
+                                                <Edit className="h-4 w-4 mr-1" />
+                                                {t.common?.edit || "Edit"}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 {diagnosis ? (
                                     <>
-                                        <div className="space-y-3">
-                                            {diagnosisCandidates.map((candidate, idx) => (
-                                                <div key={`${candidate.cause}-${idx}`} className="rounded-md border p-3 space-y-2">
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">{detailText("cause", "Cause")}</p>
-                                                        <p className="font-medium">{candidate.cause}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">{detailText("trigger", "Trigger")}</p>
-                                                        <p>{candidate.trigger}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">{detailText("evidence", "Evidence")}</p>
-                                                        <p>{candidate.evidence}</p>
-                                                    </div>
-                                                    {candidate.questions_to_ask?.length > 0 && (
-                                                        <div>
-                                                            <p className="text-xs text-muted-foreground">{detailText("followup", "Follow-up")}</p>
-                                                            <div className="space-y-1">
-                                                                {candidate.questions_to_ask.map((q, qIdx) => (
-                                                                    <p key={`${idx}-${qIdx}`}>- {q}</p>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
+                                        <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+                                            <p className="text-xs text-muted-foreground">{detailText("cause", "Cause")}</p>
+                                            <p className="text-sm">
+                                                {detailText("followup", "Root-cause reflection is done through guided chat. Internal candidate causes are hidden.")}
+                                            </p>
                                         </div>
 
                                         <div className="border-t pt-3 space-y-2">
                                             <p className="text-sm font-semibold">{detailText("finalCause", "Final Cause (Confirmed)")}</p>
                                             {isEditingDiagnosis ? (
                                                 <div className="space-y-3">
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {diagnosisCandidates.map((candidate, idx) => (
-                                                            <Badge
-                                                                key={`pick-${idx}`}
-                                                                variant="outline"
-                                                                className="cursor-pointer"
-                                                                onClick={() => setDiagnosisFinalCauseInput(candidate.cause)}
-                                                            >
-                                                                {candidate.cause}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
                                                     <Textarea
                                                         value={diagnosisFinalCauseInput}
                                                         onChange={(e) => setDiagnosisFinalCauseInput(e.target.value)}
@@ -912,6 +928,51 @@ export default function ErrorDetailPage() {
                     </div>
                 </div>
             </div>
+
+            <Dialog open={isRootCauseDialogOpen} onOpenChange={setIsRootCauseDialogOpen}>
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{detailText("diagnosis", "Diagnosis")}</DialogTitle>
+                        <DialogDescription>
+                            {detailText("followup", "Use guided questions to confirm the root cause in your own words.")}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-3">
+                        <div className="max-h-[320px] overflow-y-auto rounded-md border p-3 space-y-3">
+                            {rootCauseTurns.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    {detailText("followup", "Start by describing how you solved this question.")}
+                                </p>
+                            ) : (
+                                rootCauseTurns.map((turn, idx) => (
+                                    <div key={`${turn.role}-${idx}`} className={`rounded-md p-2 text-sm ${turn.role === "assistant" ? "bg-muted" : "bg-primary/10"}`}>
+                                        <p className="text-xs text-muted-foreground mb-1">
+                                            {turn.role === "assistant" ? "Coach" : "Student"}
+                                        </p>
+                                        <p>{turn.content}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            <Textarea
+                                value={rootCauseInput}
+                                onChange={(e) => setRootCauseInput(e.target.value)}
+                                placeholder={detailText("finalCausePlaceholder", "Write your current hypothesis of the root cause")}
+                                rows={3}
+                            />
+                            <div className="flex justify-end">
+                                <Button size="sm" onClick={sendRootCauseMessage} disabled={isSendingRootCause || !rootCauseInput.trim()}>
+                                    <Send className="h-4 w-4 mr-1" />
+                                    {isSendingRootCause ? (t.common?.pleaseWait || "Please wait...") : (detailText("followup", "Send"))}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Image Viewer Modal */}
             {
