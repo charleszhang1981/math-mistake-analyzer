@@ -5,41 +5,88 @@ import {
 } from "@/lib/ai/structured-json";
 
 describe("structured-json", () => {
-    it("builds structuredJson from parsed question fields", () => {
+    it("builds structuredJson v2 from parsed question fields", () => {
         const result = buildStructuredQuestionJson({
-            questionText: "解方程 x + 2 = 5",
+            questionText: "Solve equation x + 2 = 5",
             answerText: "x = 3",
-            analysis: "第一步：移项\n第二步：化简",
+            analysis: "Step 1: move constant\nStep 2: simplify",
         });
 
         expect(result).not.toBeNull();
+        expect(result?.version).toBe("v2");
         expect(result?.problem.topic).toBe("equation");
-        expect(result?.problem.question_markdown).toBe("解方程 x + 2 = 5");
+        expect(result?.problem.question_markdown).toBe("Solve equation x + 2 = 5");
         expect(result?.student.final_answer_markdown).toBe("x = 3");
-        expect(result?.student.steps).toEqual(["第一步：移项", "第二步：化简"]);
+        expect(result?.student.steps).toEqual(["Step 1: move constant", "Step 2: simplify"]);
+        expect(result?.knowledge.tags).toEqual([]);
+        expect(result?.solution.finalAnswer).toBe("x = 3");
+        expect(result?.mistake.studentSteps).toEqual(["Step 1: move constant", "Step 2: simplify"]);
     });
 
     it("returns null when required text fields are missing", () => {
         expect(buildStructuredQuestionJson({ questionText: "", answerText: "x=1" })).toBeNull();
-        expect(buildStructuredQuestionJson({ questionText: "题目", answerText: "" })).toBeNull();
+        expect(buildStructuredQuestionJson({ questionText: "Question", answerText: "" })).toBeNull();
     });
 
-    it("normalizes valid structuredJson payload", () => {
+    it("normalizes legacy payload into v2 shape", () => {
         const normalized = normalizeStructuredQuestionJson({
             problem: {
                 stage: "junior_high",
                 topic: "equation",
-                question_markdown: "解方程 x + 2 = 5",
+                question_markdown: "Solve equation x + 2 = 5",
                 given: [],
-                ask: "解方程 x + 2 = 5",
+                ask: "Solve equation x + 2 = 5",
             },
             student: {
                 final_answer_markdown: "x = 3",
-                steps: ["移项", "化简"],
+                steps: ["move constant", "simplify"],
             },
         });
 
         expect(normalized).not.toBeNull();
+        expect(normalized?.version).toBe("v2");
         expect(normalized?.problem.stage).toBe("junior_high");
+        expect(normalized?.solution.finalAnswer).toBe("x = 3");
+        expect(normalized?.mistake.studentSteps).toEqual(["move constant", "simplify"]);
+    });
+
+    it("normalizes explicit v2 payload unchanged", () => {
+        const normalized = normalizeStructuredQuestionJson({
+            version: "v2",
+            problem: {
+                stage: "junior_high",
+                topic: "fraction",
+                question_markdown: "Compute 1/2 + 1/3",
+                given: [],
+                ask: "Compute 1/2 + 1/3",
+            },
+            student: {
+                final_answer_markdown: "5/6",
+                steps: ["common denominator", "add numerators"],
+            },
+            knowledge: {
+                tags: [],
+            },
+            solution: {
+                finalAnswer: "5/6",
+                steps: ["common denominator", "add numerators"],
+            },
+            mistake: {
+                studentSteps: [],
+                studentAnswer: null,
+                wrongStepIndex: null,
+                whyWrong: "",
+                fixSuggestion: "",
+            },
+            rootCause: {
+                studentHypothesis: "",
+                confirmedCause: "",
+                chatSummary: "",
+            },
+        });
+
+        expect(normalized).not.toBeNull();
+        expect(normalized?.version).toBe("v2");
+        expect(normalized?.problem.topic).toBe("fraction");
     });
 });
