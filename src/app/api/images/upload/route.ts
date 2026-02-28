@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { badRequest, internalError, unauthorized } from '@/lib/api-errors';
+import { badRequest, createErrorResponse, ErrorCode, unauthorized } from '@/lib/api-errors';
 import { createLogger } from '@/lib/logger';
 import { uploadPrivateObject, createSignedObjectUrl } from '@/lib/supabase-storage';
 
@@ -128,7 +128,9 @@ export async function POST(req: Request) {
             signedUrl,
         });
     } catch (error) {
-        logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Failed to upload image');
-        return internalError('Failed to upload image');
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error({ error: message }, 'Failed to upload image');
+        const responseMessage = process.env.NODE_ENV === 'development' ? message : 'Failed to upload image';
+        return createErrorResponse(responseMessage, 500, ErrorCode.INTERNAL_ERROR);
     }
 }

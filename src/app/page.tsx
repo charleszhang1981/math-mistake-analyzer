@@ -21,6 +21,16 @@ import { signOut } from "next-auth/react";
 import { ProgressFeedback, ProgressStatus } from "@/components/ui/progress-feedback";
 import { frontendLogger } from "@/lib/frontend-logger";
 
+function extractApiErrorMessage(error: unknown): string | null {
+    if (!error || typeof error !== 'object' || !('data' in error)) return null;
+    const data = (error as { data?: unknown }).data;
+    if (!data) return null;
+    if (typeof data === 'string') return data;
+    if (typeof data !== 'object' || !('message' in data)) return null;
+    const message = (data as { message?: unknown }).message;
+    return typeof message === 'string' ? message : null;
+}
+
 function HomeContent() {
     const [step, setStep] = useState<"upload" | "review">("upload");
     const [analysisStep, setAnalysisStep] = useState<ProgressStatus>('idle');
@@ -104,12 +114,13 @@ function HomeContent() {
             setCroppingImage(imageUrl);
             setIsCropperOpen(true);
         } catch (error) {
+            const detailedMessage = extractApiErrorMessage(error);
             frontendLogger.error('[HomeUpload]', 'Failed to upload raw image', {
                 error: error instanceof Error ? error.message : String(error),
                 status: typeof error === 'object' && error && 'status' in error ? (error as any).status : undefined,
                 data: typeof error === 'object' && error && 'data' in error ? (error as any).data : undefined,
             });
-            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+            alert(detailedMessage || t.common?.messages?.saveFailed || 'Failed to upload image');
         } finally {
             setAnalysisStep('idle');
         }
@@ -123,13 +134,14 @@ function HomeContent() {
             const uploadResult = await uploadImageToStorage(file, "crop");
             setCropImageKey(uploadResult.key);
         } catch (error) {
+            const detailedMessage = extractApiErrorMessage(error);
             frontendLogger.error('[HomeUpload]', 'Failed to upload cropped image', {
                 error: error instanceof Error ? error.message : String(error),
                 status: typeof error === 'object' && error && 'status' in error ? (error as any).status : undefined,
                 data: typeof error === 'object' && error && 'data' in error ? (error as any).data : undefined,
             });
             setAnalysisStep('idle');
-            alert(t.common?.messages?.saveFailed || 'Failed to upload image');
+            alert(detailedMessage || t.common?.messages?.saveFailed || 'Failed to upload image');
             return;
         }
         await handleAnalyze(file);
