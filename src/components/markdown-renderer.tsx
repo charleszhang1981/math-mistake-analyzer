@@ -10,10 +10,40 @@ interface MarkdownRendererProps {
     className?: string;
 }
 
+const MATH_COMMANDS =
+    "frac|sqrt|times|div|cdot|left|right|leq|geq|neq|pm|mp|sin|cos|tan|log|ln|pi|theta|alpha|beta|gamma|delta|sum|prod|int|overline|underline|text|boxed|begin|end|to|infty";
+
+function wrapBareLatexLine(line: string): string {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (/[`$]/.test(trimmed) || /\\\(|\\\[/.test(trimmed)) return line;
+
+    const hasLatexCommand = /\\[a-zA-Z]+/.test(trimmed);
+    if (!hasLatexCommand) return line;
+
+    const naturalText = trimmed
+        .replace(/\\[a-zA-Z]+/g, "")
+        .replace(/[{}\[\]()0-9+\-*/^_=.,:，。；：！？\s]/g, "");
+    if (/[A-Za-z\u4e00-\u9fff]/.test(naturalText)) return line;
+
+    return `$${trimmed}$`;
+}
+
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+    const normalizedMathContent = content
+        // AI sometimes emits escaped delimiters; normalize so KaTeX can parse.
+        .replace(/\\\$/g, "$")
+        // Handle over-escaped math commands like \\frac -> \frac.
+        .replace(new RegExp(String.raw`\\\\(?=(${MATH_COMMANDS})\b)`, "g"), "\\");
+
+    const mathWrappedContent = normalizedMathContent
+        .split(/\r?\n/)
+        .map((line) => wrapBareLatexLine(line))
+        .join("\n");
+
     // Preprocess content to ensure proper paragraph breaks and LaTeX rendering
     // Convert single line breaks to double line breaks for better readability
-    const processedContent = content
+    const processedContent = mathWrappedContent
         // First, convert literal \n sequences to actual newlines (fix for AI responses)
         .replace(/\\n/g, '\n')
         // Preserve existing double line breaks with a unique marker

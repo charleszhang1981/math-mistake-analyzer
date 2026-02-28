@@ -78,7 +78,31 @@ function toNullableInt(value: string): number | null {
 function buildSolutionMarkdown(stepsText: string): string {
     const lines = textToLines(stepsText);
     if (lines.length === 0) return "";
-    return lines.map((line, index) => `${index + 1}. ${line}`).join("\n");
+    return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
+}
+
+function normalizeMathLine(line: string): string {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+
+    if (/[`$]/.test(trimmed) || /\\\(|\\\[/.test(trimmed)) {
+        return line;
+    }
+
+    const hasLatexCommand = /\\[a-zA-Z]+/.test(trimmed);
+    const hasMathOperator = /[=+\-*/^]/.test(trimmed);
+    if (!hasLatexCommand && !hasMathOperator) {
+        return line;
+    }
+
+    const naturalText = trimmed
+        .replace(/\\[a-zA-Z]+/g, "")
+        .replace(/[{}\[\]()0-9+\-*/^_=.,:，。；：！？\s]/g, "");
+    if (/[A-Za-z\u4e00-\u9fff]/.test(naturalText)) {
+        return line;
+    }
+
+    return `$${trimmed}$`;
 }
 
 export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, initialSubjectId, aiTimeout }: CorrectionEditorProps) {
@@ -98,8 +122,9 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const { t, language } = useLanguage();
     const [isReanswering, setIsReanswering] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [isQuestionSourceMode, setIsQuestionSourceMode] = useState(false);
-    const [isSolutionSourceMode, setIsSolutionSourceMode] = useState(true);
+    const [isQuestionEditing, setIsQuestionEditing] = useState(false);
+    const [isSolutionEditing, setIsSolutionEditing] = useState(false);
+    const [isMistakeEditing, setIsMistakeEditing] = useState(false);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -395,14 +420,14 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setIsQuestionSourceMode((prev) => !prev)}
+                            onClick={() => setIsQuestionEditing((prev) => !prev)}
                         >
-                            {isQuestionSourceMode
-                                ? (t.editor?.renderedView || "Rendered View")
-                                : (t.editor?.sourceEdit || "Edit Source")}
+                            {isQuestionEditing
+                                ? (t.common?.confirm || "Done")
+                                : (t.common?.edit || "Edit")}
                         </Button>
                     </div>
-                    {isQuestionSourceMode ? (
+                    {isQuestionEditing ? (
                         <Textarea
                             value={data.questionText}
                             onChange={(e) => setData({ ...data, questionText: e.target.value })}
@@ -466,18 +491,18 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => setIsSolutionSourceMode((prev) => !prev)}
+                                    onClick={() => setIsSolutionEditing((prev) => !prev)}
                                 >
-                                    {isSolutionSourceMode
-                                        ? (t.editor?.renderedView || "Rendered View")
-                                        : (t.editor?.sourceEdit || "Edit Source")}
+                                    {isSolutionEditing
+                                        ? (t.common?.confirm || "Done")
+                                        : (t.common?.edit || "Edit")}
                                 </Button>
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label>{t.editor.standardAnswer || "Standard Answer"}</Label>
-                                {isSolutionSourceMode ? (
+                                {isSolutionEditing ? (
                                     <Textarea
                                         value={solutionFinalAnswer}
                                         onChange={(e) => setSolutionFinalAnswer(e.target.value)}
@@ -486,14 +511,14 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     />
                                 ) : (
                                     <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
-                                        <MarkdownRenderer content={solutionFinalAnswer || ""} />
+                                        <MarkdownRenderer content={normalizeMathLine(solutionFinalAnswer || "")} />
                                     </div>
                                 )}
                             </div>
 
                             <div className="space-y-2">
                                 <Label>{t.editor.solutionSteps || "Step-by-Step Solution"}</Label>
-                                {isSolutionSourceMode ? (
+                                {isSolutionEditing ? (
                                     <Textarea
                                         value={solutionStepsText}
                                         onChange={(e) => setSolutionStepsText(e.target.value)}
@@ -512,46 +537,92 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     <div className="space-y-6">
                         <Card>
                             <CardHeader>
-                                <CardTitle>{t.editor.errorLocalization || "H Error Localization"}</CardTitle>
+                                <div className="flex items-center justify-between">
+                                    <CardTitle>{t.editor.errorLocalization || "H Error Localization"}</CardTitle>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setIsMistakeEditing((prev) => !prev)}
+                                    >
+                                        {isMistakeEditing
+                                            ? (t.common?.confirm || "Done")
+                                            : (t.common?.edit || "Edit")}
+                                    </Button>
+                                </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="space-y-2">
-                                    <Label>{t.editor.studentSteps || "Student Steps"}</Label>
-                                    <Textarea
-                                        value={mistakeStudentStepsText}
-                                        onChange={(e) => setMistakeStudentStepsText(e.target.value)}
-                                        className="min-h-[140px] font-mono text-sm"
-                                        placeholder={t.editor.solutionStepsPlaceholder || "One step per line"}
-                                    />
-                                </div>
+                                {isMistakeEditing ? (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.studentSteps || "Student Steps"}</Label>
+                                            <Textarea
+                                                value={mistakeStudentStepsText}
+                                                onChange={(e) => setMistakeStudentStepsText(e.target.value)}
+                                                className="min-h-[140px] font-mono text-sm"
+                                                placeholder={t.editor.solutionStepsPlaceholder || "One step per line"}
+                                            />
+                                        </div>
 
-                                <div className="space-y-2">
-                                    <Label>{t.editor.wrongStepIndex || "Wrong Step Index (1-based)"}</Label>
-                                    <Input
-                                        value={mistakeWrongStepIndex}
-                                        onChange={(e) => setMistakeWrongStepIndex(e.target.value)}
-                                        inputMode="numeric"
-                                        placeholder="e.g. 2"
-                                    />
-                                </div>
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.wrongStepIndex || "Wrong Step Index (1-based)"}</Label>
+                                            <Input
+                                                value={mistakeWrongStepIndex}
+                                                onChange={(e) => setMistakeWrongStepIndex(e.target.value)}
+                                                inputMode="numeric"
+                                                placeholder="e.g. 2"
+                                            />
+                                        </div>
 
-                                <div className="space-y-2">
-                                    <Label>{t.editor.whyWrong || "Why Wrong"}</Label>
-                                    <Textarea
-                                        value={mistakeWhyWrong}
-                                        onChange={(e) => setMistakeWhyWrong(e.target.value)}
-                                        className="min-h-[90px]"
-                                    />
-                                </div>
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.whyWrong || "Why Wrong"}</Label>
+                                            <Textarea
+                                                value={mistakeWhyWrong}
+                                                onChange={(e) => setMistakeWhyWrong(e.target.value)}
+                                                className="min-h-[90px]"
+                                            />
+                                        </div>
 
-                                <div className="space-y-2">
-                                    <Label>{t.editor.fixSuggestion || "How to Fix"}</Label>
-                                    <Textarea
-                                        value={mistakeFixSuggestion}
-                                        onChange={(e) => setMistakeFixSuggestion(e.target.value)}
-                                        className="min-h-[90px]"
-                                    />
-                                </div>
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.fixSuggestion || "How to Fix"}</Label>
+                                            <Textarea
+                                                value={mistakeFixSuggestion}
+                                                onChange={(e) => setMistakeFixSuggestion(e.target.value)}
+                                                className="min-h-[90px]"
+                                            />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.studentSteps || "Student Steps"}</Label>
+                                            <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={buildSolutionMarkdown(mistakeStudentStepsText)} />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.wrongStepIndex || "Wrong Step Index (1-based)"}</Label>
+                                            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                                                {mistakeWrongStepIndex.trim() || "-"}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.whyWrong || "Why Wrong"}</Label>
+                                            <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={mistakeWhyWrong || ""} />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>{t.editor.fixSuggestion || "How to Fix"}</Label>
+                                            <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={mistakeFixSuggestion || ""} />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
 
