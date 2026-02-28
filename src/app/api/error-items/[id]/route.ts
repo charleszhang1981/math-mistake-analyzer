@@ -16,6 +16,50 @@ import {
 
 const logger = createLogger('api:error-items:id');
 
+function syncConfirmedCause(
+    structured: ReturnType<typeof normalizeStructuredQuestionJson>,
+    diagnosis: ReturnType<typeof normalizeDiagnosisJson>,
+    priority: "structured" | "diagnosis" | "auto" = "auto"
+) {
+    const confirmedFromStructured = structured?.rootCause.confirmedCause?.trim() || null;
+    const confirmedFromDiagnosis = diagnosis?.finalCause?.trim() || null;
+    let confirmed: string | null = null;
+
+    if (priority === "structured") {
+        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
+    } else if (priority === "diagnosis") {
+        confirmed = confirmedFromDiagnosis || confirmedFromStructured;
+    } else {
+        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
+    }
+
+    if (!confirmed) {
+        return { structured, diagnosis };
+    }
+
+    const syncedStructured = structured
+        ? {
+            ...structured,
+            rootCause: {
+                ...structured.rootCause,
+                confirmedCause: confirmed,
+            },
+        }
+        : structured;
+
+    const syncedDiagnosis = diagnosis
+        ? {
+            ...diagnosis,
+            finalCause: confirmed,
+        }
+        : diagnosis;
+
+    return {
+        structured: syncedStructured,
+        diagnosis: syncedDiagnosis,
+    };
+}
+
 export async function GET(
     req: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -46,7 +90,7 @@ export async function GET(
             },
             include: {
                 subject: true,
-                tags: true, // 包含标签关联
+                tags: true, // include tag relations
             },
         });
 
@@ -130,7 +174,7 @@ export async function PUT(
             return forbidden("Not authorized to update this item");
         }
 
-        // 构建更新数据
+        // Build update payload
         const updateData: any = {};
         if (gradeSemester !== undefined) updateData.gradeSemester = gradeSemester;
         if (paperLevel !== undefined) updateData.paperLevel = paperLevel;
@@ -196,7 +240,46 @@ export async function PUT(
             );
         }
 
-        // 处理 knowledgePoints (标签)
+        // Handle knowledgePoints (tags)
+
+        const structuredForSync = normalizeStructuredQuestionJson(
+            updateData.structuredJson !== undefined ? updateData.structuredJson : errorItem.structuredJson
+        );
+        let diagnosisForSync = normalizeDiagnosisJson(
+            updateData.diagnosisJson !== undefined ? updateData.diagnosisJson : errorItem.diagnosisJson
+        );
+        if (!diagnosisForSync && structuredForSync) {
+            const checkerForDiagnosis =
+                normalizeCheckerJson(updateData.checkerJson)
+                ?? normalizeCheckerJson(errorItem.checkerJson)
+                ?? buildCheckerJson({
+                    questionText: effectiveQuestionText,
+                    answerText: effectiveAnswerText,
+                });
+
+            diagnosisForSync = buildDiagnosisJson(
+                {
+                    questionText: effectiveQuestionText,
+                    answerText: effectiveAnswerText,
+                    analysis: effectiveAnalysis,
+                    structuredJson: structuredForSync,
+                },
+                checkerForDiagnosis
+            );
+        }
+
+        const priority = structuredJson !== undefined
+            ? "structured"
+            : diagnosisJson !== undefined
+                ? "diagnosis"
+                : "auto";
+        const synced = syncConfirmedCause(structuredForSync, diagnosisForSync, priority);
+        if (synced.structured !== null) {
+            updateData.structuredJson = synced.structured;
+        }
+        if (synced.diagnosis !== null) {
+            updateData.diagnosisJson = synced.diagnosis;
+        }
         if (knowledgePoints !== undefined) {
             const tagNames: string[] = Array.isArray(knowledgePoints)
                 ? knowledgePoints
@@ -204,7 +287,7 @@ export async function PUT(
                     ? JSON.parse(knowledgePoints)
                     : [];
 
-            // 推断学科
+            // Subject is locked to math
             const subjectKey = 'math';
 
             const tagConnections: { id: string }[] = [];
@@ -239,13 +322,13 @@ export async function PUT(
                 tagConnections.push({ id: tag.id });
             }
 
-            // 更新标签关联: 先断开所有，再连接新的
+            // Reset then reconnect all tag relations.
             updateData.tags = {
-                set: [], // 先清空
+                set: [], // clear existing links first
                 connect: tagConnections,
             };
 
-            // 保留旧字段兼容
+            // Keep legacy field for backward compatibility.
             updateData.knowledgePoints = JSON.stringify(tagNames);
         }
 
@@ -263,3 +346,4 @@ export async function PUT(
         return internalError("Failed to update error item");
     }
 }
+

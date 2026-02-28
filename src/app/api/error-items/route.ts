@@ -17,6 +17,50 @@ import {
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
 
+function syncConfirmedCause(
+    structured: ReturnType<typeof normalizeStructuredQuestionJson>,
+    diagnosis: ReturnType<typeof normalizeDiagnosisJson>,
+    priority: "structured" | "diagnosis" | "auto" = "auto"
+) {
+    const confirmedFromStructured = structured?.rootCause.confirmedCause?.trim() || null;
+    const confirmedFromDiagnosis = diagnosis?.finalCause?.trim() || null;
+    let confirmed: string | null = null;
+
+    if (priority === "structured") {
+        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
+    } else if (priority === "diagnosis") {
+        confirmed = confirmedFromDiagnosis || confirmedFromStructured;
+    } else {
+        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
+    }
+
+    if (!confirmed) {
+        return { structured, diagnosis };
+    }
+
+    const syncedStructured = structured
+        ? {
+            ...structured,
+            rootCause: {
+                ...structured.rootCause,
+                confirmedCause: confirmed,
+            },
+        }
+        : structured;
+
+    const syncedDiagnosis = diagnosis
+        ? {
+            ...diagnosis,
+            finalCause: confirmed,
+        }
+        : diagnosis;
+
+    return {
+        structured: syncedStructured,
+        diagnosis: syncedDiagnosis,
+    };
+}
+
 async function ensureMathNotebook(userId: string) {
     const existingMath = await prisma.subject.findFirst({
         where: {
@@ -199,6 +243,9 @@ export async function POST(req: Request) {
             ?? buildCheckerJson({ questionText, answerText });
         const normalizedDiagnosisJson = normalizeDiagnosisJson(diagnosisJson)
             ?? buildDiagnosisJson({ questionText, answerText, analysis }, normalizedCheckerJson);
+        const synced = syncConfirmedCause(normalizedStructuredJson, normalizedDiagnosisJson, "structured");
+        const finalStructuredJson = synced.structured;
+        const finalDiagnosisJson = synced.diagnosis;
 
         // 创建错题记录
         try {
@@ -213,9 +260,9 @@ export async function POST(req: Request) {
                     answerText,
                     analysis,
                     knowledgePoints: JSON.stringify(tagNames),
-                    structuredJson: normalizedStructuredJson ?? undefined,
+                    structuredJson: finalStructuredJson ?? undefined,
                     checkerJson: normalizedCheckerJson ?? undefined,
-                    diagnosisJson: normalizedDiagnosisJson ?? undefined,
+                    diagnosisJson: finalDiagnosisJson ?? undefined,
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     masteryLevel: 0,
