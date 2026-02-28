@@ -1,14 +1,16 @@
-import { createLogger } from './logger';
+﻿import { createLogger } from './logger';
 
 const logger = createLogger('config');
 
-// OpenAI 实例配置
+// OpenAI instance config
 export interface OpenAIInstance {
     id: string;
     name: string;
     apiKey: string;
     baseUrl: string;
     model: string;
+    extractModel?: string;
+    reasonModel?: string;
 }
 
 export interface AppConfig {
@@ -22,11 +24,15 @@ export interface AppConfig {
         apiKey?: string;
         baseUrl?: string;
         model?: string;
+        modelExtract?: string;
+        modelReason?: string;
     };
     azure?: {
         apiKey?: string;
         endpoint?: string;
         deploymentName?: string;
+        deploymentExtract?: string;
+        deploymentReason?: string;
         apiVersion?: string;
         model?: string;
     };
@@ -37,20 +43,35 @@ export interface AppConfig {
     timeouts?: {
         analyze?: number;
     };
+    ai?: {
+        analyzeStage1MaxTokens?: number;
+        analyzeStage2MaxTokens?: number;
+    };
+}
+
+function parseEnvInt(value: string | undefined, fallback: number): number {
+    const parsed = Number.parseInt(value || '', 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function getEnvConfig(): AppConfig {
+    const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o';
+    const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const azureDeployment = process.env.AZURE_OPENAI_DEPLOYMENT;
+
     const defaultOpenAIInstance: OpenAIInstance | null = process.env.OPENAI_API_KEY
         ? {
             id: 'env-default',
             name: 'Default (ENV)',
             apiKey: process.env.OPENAI_API_KEY,
             baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-            model: process.env.OPENAI_MODEL || 'gpt-4o',
+            model: openaiModel,
+            extractModel: process.env.OPENAI_MODEL_EXTRACT || openaiModel,
+            reasonModel: process.env.OPENAI_MODEL_REASON || openaiModel,
         }
         : null;
 
-    const timeoutFromEnv = Number.parseInt(process.env.AI_ANALYZE_TIMEOUT_MS || '180000', 10);
+    const timeoutFromEnv = parseEnvInt(process.env.AI_ANALYZE_TIMEOUT_MS, 180000);
 
     return {
         aiProvider: (process.env.AI_PROVIDER as 'gemini' | 'openai' | 'azure') || 'gemini',
@@ -64,12 +85,16 @@ function getEnvConfig(): AppConfig {
         gemini: {
             apiKey: process.env.GOOGLE_API_KEY,
             baseUrl: process.env.GEMINI_BASE_URL,
-            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+            model: geminiModel,
+            modelExtract: process.env.GEMINI_MODEL_EXTRACT || geminiModel,
+            modelReason: process.env.GEMINI_MODEL_REASON || geminiModel,
         },
         azure: {
             apiKey: process.env.AZURE_OPENAI_API_KEY,
             endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-            deploymentName: process.env.AZURE_OPENAI_DEPLOYMENT,
+            deploymentName: azureDeployment,
+            deploymentExtract: process.env.AZURE_OPENAI_DEPLOYMENT_EXTRACT || azureDeployment,
+            deploymentReason: process.env.AZURE_OPENAI_DEPLOYMENT_REASON || azureDeployment,
             apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
             model: process.env.AZURE_OPENAI_MODEL || 'gpt-4o',
         },
@@ -78,7 +103,11 @@ function getEnvConfig(): AppConfig {
             similar: process.env.AI_PROMPT_SIMILAR || '',
         },
         timeouts: {
-            analyze: Number.isFinite(timeoutFromEnv) ? timeoutFromEnv : 180000,
+            analyze: timeoutFromEnv,
+        },
+        ai: {
+            analyzeStage1MaxTokens: parseEnvInt(process.env.AI_ANALYZE_STAGE1_MAX_TOKENS, 1200),
+            analyzeStage2MaxTokens: parseEnvInt(process.env.AI_ANALYZE_STAGE2_MAX_TOKENS, 3200),
         },
     };
 }
@@ -104,5 +133,5 @@ export function getActiveOpenAIConfig(): OpenAIInstance | undefined {
     return instances.find((instance) => instance.id === activeId);
 }
 
-// 仅支持环境变量配置，实例数固定 1
+// Env-only config with one OpenAI instance maximum.
 export const MAX_OPENAI_INSTANCES = 1;

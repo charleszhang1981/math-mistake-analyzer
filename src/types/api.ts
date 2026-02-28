@@ -1,7 +1,6 @@
-import { ParsedQuestion } from "@/lib/ai/types";
+﻿import { ParsedQuestion } from "@/lib/ai/types";
 import type { StructuredQuestionJson } from "@/lib/ai/structured-json";
 
-// 通用分页响应类型
 export interface PaginatedResponse<T> {
     items: T[];
     total: number;
@@ -23,7 +22,6 @@ export interface Tag {
     };
 }
 
-// AI Model types
 export interface AIModel {
     id: string;
     name: string;
@@ -96,7 +94,6 @@ export interface ReviewListResponse {
     dueOnly: boolean;
 }
 
-// For creation/updates
 export interface CreateErrorItemRequest extends ParsedQuestion {
     originalImageUrl: string;
     rawImageKey?: string;
@@ -132,11 +129,13 @@ export interface UpdateUserProfileRequest {
 }
 
 export interface OpenAIInstance {
-    id: string;           // 唯一标识 (UUID)
-    name: string;         // 用户自定义名称
+    id: string;
+    name: string;
     apiKey: string;
     baseUrl: string;
     model: string;
+    extractModel?: string;
+    reasonModel?: string;
 }
 
 export interface AppConfig {
@@ -150,23 +149,30 @@ export interface AppConfig {
         apiKey?: string;
         baseUrl?: string;
         model?: string;
+        modelExtract?: string;
+        modelReason?: string;
     };
     azure?: {
         apiKey?: string;
-        endpoint?: string;       // Azure 资源端点 (https://xxx.openai.azure.com)
-        deploymentName?: string; // 部署名称
-        apiVersion?: string;     // API 版本 (如 2024-02-15-preview)
-        model?: string;          // 显示用模型名 (如 gpt-4o)
+        endpoint?: string;
+        deploymentName?: string;
+        deploymentExtract?: string;
+        deploymentReason?: string;
+        apiVersion?: string;
+        model?: string;
     };
     prompts?: {
         analyze?: string;
         similar?: string;
     };
     timeouts?: {
-        analyze?: number; // 毫秒
+        analyze?: number;
+    };
+    ai?: {
+        analyzeStage1MaxTokens?: number;
+        analyzeStage2MaxTokens?: number;
     };
 }
-
 
 export interface AnalyticsData {
     totalErrors: number;
@@ -178,7 +184,7 @@ export interface AnalyticsData {
 
 export interface PracticeStatsData {
     subjectStats: { name: string; value: number }[];
-    activityStats: { date: string; total: number; correct: number;[key: string]: number | string }[];
+    activityStats: { date: string; total: number; correct: number; [key: string]: number | string }[];
     difficultyStats: { name: string; value: number }[];
     overallStats: { total: number; correct: number; rate: string };
 }

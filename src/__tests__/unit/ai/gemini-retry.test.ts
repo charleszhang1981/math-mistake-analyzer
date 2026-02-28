@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies
 vi.mock('@google/genai', () => {
@@ -28,6 +28,8 @@ vi.mock('@/lib/config', () => ({
 }));
 
 vi.mock('@/lib/ai/schema', () => ({
+    safeParseImageExtract: vi.fn((data) => ({ success: true, data })),
+    safeParseTextReason: vi.fn((data) => ({ success: true, data })),
     safeParseParsedQuestion: vi.fn((data) => ({ success: true, data })),
 }));
 
@@ -60,27 +62,29 @@ describe('GeminiProvider Retry Logic', () => {
             .mockRejectedValueOnce(new Error('fetch failed'))
             .mockRejectedValueOnce(new Error('network timeout'))
             .mockResolvedValueOnce({
-                text: '<question_text>Q</question_text><answer_text>A</answer_text><analysis>An</analysis><subject>数学</subject>',
-                usageMetadata: {}
+                text: '<question_text>Q</question_text><requires_image>false</requires_image><student_steps_raw>step1</student_steps_raw>',
+                usageMetadata: {},
+            })
+            .mockResolvedValueOnce({
+                text: '<answer_text>A</answer_text><analysis>An</analysis><knowledge_points>k1</knowledge_points>',
+                usageMetadata: {},
             });
 
         const result = await provider.analyzeImage('base64data');
 
         expect(result).toBeDefined();
         expect(result.questionText).toBe('Q');
-        // Initial call + 2 retries = 3 calls
-        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+        // stage1 with 2 retries + stage2 once
+        expect(mockGenerateContent).toHaveBeenCalledTimes(4);
     });
 
     it('should throw immediately on non-retryable error', async () => {
         mockGenerateContent.mockRejectedValue(new Error('AI_AUTH_ERROR: Invalid API Key'));
 
-        // Should fail immediately without retrying
         await expect(provider.analyzeImage('base64data'))
             .rejects
             .toThrow('AI_AUTH_ERROR');
 
-        // Only 1 call, no retries for auth errors
         expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
@@ -89,7 +93,7 @@ describe('GeminiProvider Retry Logic', () => {
 
         await expect(provider.analyzeImage('base64data'))
             .rejects
-            .toThrow('AI_CONNECTION_FAILED');
+            .toThrow('fetch failed');
 
         // 3 attempts total (1 initial + 2 retries)
         expect(mockGenerateContent).toHaveBeenCalledTimes(3);
@@ -99,27 +103,35 @@ describe('GeminiProvider Retry Logic', () => {
         mockGenerateContent
             .mockRejectedValueOnce(new Error('503 Service Unavailable'))
             .mockResolvedValueOnce({
-                text: '<question_text>Q</question_text><answer_text>A</answer_text><analysis>An</analysis><subject>数学</subject>',
-                usageMetadata: {}
+                text: '<question_text>Q</question_text><requires_image>false</requires_image>',
+                usageMetadata: {},
+            })
+            .mockResolvedValueOnce({
+                text: '<answer_text>A</answer_text><analysis>An</analysis><knowledge_points>k1</knowledge_points>',
+                usageMetadata: {},
             });
 
         const result = await provider.analyzeImage('base64data');
 
         expect(result).toBeDefined();
-        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     });
 
     it('should retry on connection reset', async () => {
         mockGenerateContent
             .mockRejectedValueOnce(new Error('ECONNRESET'))
             .mockResolvedValueOnce({
-                text: '<question_text>Q</question_text><answer_text>A</answer_text><analysis>An</analysis><subject>数学</subject>',
-                usageMetadata: {}
+                text: '<question_text>Q</question_text><requires_image>false</requires_image>',
+                usageMetadata: {},
+            })
+            .mockResolvedValueOnce({
+                text: '<answer_text>A</answer_text><analysis>An</analysis><knowledge_points>k1</knowledge_points>',
+                usageMetadata: {},
             });
 
         const result = await provider.analyzeImage('base64data');
 
         expect(result).toBeDefined();
-        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     });
 });
