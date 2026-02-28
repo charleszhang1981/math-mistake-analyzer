@@ -57,6 +57,31 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 * **直接使用标准的 LaTeX 符号**（如 $\frac{1}{2}$），**不要**进行 JSON 转义（不要写成 \\frac）。
 </analysis>
 
+Optional structured tags for editor prefill (high priority):
+<solution_final_answer>
+One-line standard final answer.
+</solution_final_answer>
+
+<solution_steps>
+Step-by-step standard solution. Use one step per line.
+</solution_steps>
+
+<mistake_student_steps>
+Recovered student steps. Use one step per line.
+</mistake_student_steps>
+
+<mistake_wrong_step_index>
+1-based index of the first wrong step. Leave empty if unknown.
+</mistake_wrong_step_index>
+
+<mistake_why_wrong>
+Short explanation of why the student's step is wrong.
+</mistake_why_wrong>
+
+<mistake_fix_suggestion>
+Actionable local correction for that wrong step.
+</mistake_fix_suggestion>
+
 【知识点标签列表（KNOWLEDGE POINT LIST）】
 {{knowledge_points_list}}
 

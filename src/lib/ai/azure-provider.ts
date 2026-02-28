@@ -74,6 +74,20 @@ export class AzureOpenAIProvider implements AIService {
         return text.substring(startIndex + startTag.length, endIndex).trim();
     }
 
+    private parseStepList(raw: string | null): string[] {
+        if (!raw) return [];
+        return raw
+            .split(/\r?\n|\|\|/)
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+    }
+
+    private parseOptionalInt(raw: string | null): number | null {
+        if (!raw) return null;
+        const num = Number.parseInt(raw.trim(), 10);
+        return Number.isNaN(num) ? null : num;
+    }
+
     private parseResponse(text: string): ParsedQuestion {
         logger.debug({ textLength: text.length }, 'Parsing AI response');
 
@@ -83,6 +97,12 @@ export class AzureOpenAIProvider implements AIService {
         const subjectRaw = this.extractTag(text, "subject");
         const knowledgePointsRaw = this.extractTag(text, "knowledge_points");
         const requiresImageRaw = this.extractTag(text, "requires_image");
+        const solutionFinalAnswerRaw = this.extractTag(text, "solution_final_answer");
+        const solutionStepsRaw = this.extractTag(text, "solution_steps");
+        const mistakeStudentStepsRaw = this.extractTag(text, "mistake_student_steps");
+        const mistakeWrongStepIndexRaw = this.extractTag(text, "mistake_wrong_step_index");
+        const mistakeWhyWrongRaw = this.extractTag(text, "mistake_why_wrong");
+        const mistakeFixSuggestionRaw = this.extractTag(text, "mistake_fix_suggestion");
 
         // Basic Validation
         if (!questionText || !answerText || !analysis) {
@@ -113,7 +133,13 @@ export class AzureOpenAIProvider implements AIService {
             analysis,
             subject,
             knowledgePoints,
-            requiresImage
+            requiresImage,
+            solutionFinalAnswer: solutionFinalAnswerRaw?.trim() || undefined,
+            solutionSteps: this.parseStepList(solutionStepsRaw),
+            mistakeStudentSteps: this.parseStepList(mistakeStudentStepsRaw),
+            mistakeWrongStepIndex: this.parseOptionalInt(mistakeWrongStepIndexRaw),
+            mistakeWhyWrong: mistakeWhyWrongRaw?.trim() || undefined,
+            mistakeFixSuggestion: mistakeFixSuggestionRaw?.trim() || undefined,
         };
 
         // Final Schema Validation

@@ -65,7 +65,7 @@ function toNormalizedLines(text: string): string[] {
 
 function toSentenceSteps(text: string): string[] {
     return text
-        .split(/[。！？.!?]\s*/)
+        .split(/[。！？；.!?]\s*/)
         .map((segment) => segment.replace(stepPrefixPattern, "").trim())
         .filter((segment) => segment.length > 0);
 }
@@ -114,10 +114,30 @@ function extractSteps(analysis: string): string[] {
     return [normalized];
 }
 
+function normalizeStepArray(steps: string[] | null | undefined): string[] {
+    if (!Array.isArray(steps)) return [];
+    return steps
+        .map((step) => step.trim())
+        .filter((step) => step.length > 0)
+        .slice(0, 8);
+}
+
+function normalizeWrongStepIndex(value: number | null | undefined): number | null {
+    if (typeof value !== "number" || !Number.isInteger(value)) return null;
+    // AI prompt uses 1-based index; store internally as 0-based.
+    return value > 0 ? value - 1 : null;
+}
+
 export interface StructuredSource {
     questionText?: string | null;
     answerText?: string | null;
     analysis?: string | null;
+    solutionFinalAnswer?: string | null;
+    solutionSteps?: string[] | null;
+    mistakeStudentSteps?: string[] | null;
+    mistakeWrongStepIndex?: number | null;
+    mistakeWhyWrong?: string | null;
+    mistakeFixSuggestion?: string | null;
 }
 
 function toV2StructuredJson(input: {
@@ -163,7 +183,12 @@ export function buildStructuredQuestionJson(source: StructuredSource): Structure
         return null;
     }
 
-    return toV2StructuredJson({
+    const fallbackSteps = extractSteps(analysis);
+    const solutionSteps = normalizeStepArray(source.solutionSteps);
+    const studentSteps = normalizeStepArray(source.mistakeStudentSteps);
+
+    const candidate = {
+        version: "v2" as const,
         problem: {
             stage: inferStage(questionText),
             topic: inferTopic(questionText),
@@ -173,9 +198,31 @@ export function buildStructuredQuestionJson(source: StructuredSource): Structure
         },
         student: {
             final_answer_markdown: answerText,
-            steps: extractSteps(analysis),
+            steps: fallbackSteps,
         },
-    });
+        knowledge: {
+            tags: [],
+        },
+        solution: {
+            finalAnswer: source.solutionFinalAnswer?.trim() || answerText,
+            steps: solutionSteps.length > 0 ? solutionSteps : fallbackSteps,
+        },
+        mistake: {
+            studentSteps: studentSteps.length > 0 ? studentSteps : fallbackSteps,
+            studentAnswer: null,
+            wrongStepIndex: normalizeWrongStepIndex(source.mistakeWrongStepIndex),
+            whyWrong: source.mistakeWhyWrong?.trim() || "",
+            fixSuggestion: source.mistakeFixSuggestion?.trim() || "",
+        },
+        rootCause: {
+            studentHypothesis: "",
+            confirmedCause: "",
+            chatSummary: "",
+        },
+    };
+
+    const parsed = StructuredQuestionJsonSchema.safeParse(candidate);
+    return parsed.success ? parsed.data : null;
 }
 
 export function normalizeStructuredQuestionJson(value: unknown): StructuredQuestionJson | null {
