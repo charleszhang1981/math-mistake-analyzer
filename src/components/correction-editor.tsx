@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Save, RefreshCw, Loader2, MessageSquare, Send } from "lucide-react";
+import { Save, RefreshCw, Loader2, ClipboardPaste } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { frontendLogger } from "@/lib/frontend-logger";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
@@ -23,12 +23,7 @@ import {
     normalizeStructuredQuestionJson,
     type StructuredQuestionJson,
 } from "@/lib/ai/structured-json";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
-type RootCauseTurn = {
-    role: "user" | "assistant";
-    content: string;
-};
+import { normalizeDiagnosisJson } from "@/lib/math-checker";
 
 interface ParsedQuestionWithSubject extends ParsedQuestion {
     subjectId?: string;
@@ -79,6 +74,25 @@ function buildSolutionMarkdown(stepsText: string): string {
     const lines = textToLines(stepsText);
     if (lines.length === 0) return "";
     return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
+}
+
+function buildSystemHintText(diagnosisJson: unknown, chatSummary: string): string {
+    const diagnosis = normalizeDiagnosisJson(diagnosisJson);
+    const candidate = diagnosis?.candidates?.[0];
+    if (candidate) {
+        const questionLines = candidate.questions_to_ask
+            .map((question, index) => `${index + 1}. ${question}`)
+            .join("\n");
+        return [
+            `Cause: ${candidate.cause}`,
+            `Evidence: ${candidate.evidence}`,
+            questionLines ? `Reflection Questions:\n${questionLines}` : "",
+        ]
+            .filter((line) => line.trim().length > 0)
+            .join("\n\n");
+    }
+
+    return chatSummary.trim();
 }
 
 function normalizeMathLine(line: string): string {
@@ -140,12 +154,9 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const [mistakeWhyWrong, setMistakeWhyWrong] = useState(initialStructured?.mistake.whyWrong || "");
     const [mistakeFixSuggestion, setMistakeFixSuggestion] = useState(initialStructured?.mistake.fixSuggestion || "");
     const [confirmedRootCause, setConfirmedRootCause] = useState(initialStructured?.rootCause.confirmedCause || "");
-    const [chatSummaryDraft, setChatSummaryDraft] = useState(initialStructured?.rootCause.chatSummary || "");
+    const [chatSummaryDraft] = useState(initialStructured?.rootCause.chatSummary || "");
 
-    const [isRootCausePanelOpen, setIsRootCausePanelOpen] = useState(false);
-    const [rootCauseTurns, setRootCauseTurns] = useState<RootCauseTurn[]>([]);
-    const [rootCauseInput, setRootCauseInput] = useState("");
-    const [isSendingRootCause, setIsSendingRootCause] = useState(false);
+    const [showSystemHint, setShowSystemHint] = useState(false);
 
     useEffect(() => {
         apiClient.get<Notebook[]>("/api/notebooks")
@@ -283,51 +294,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
         }
     };
 
-    const openRootCausePanel = () => {
-        setRootCauseInput("");
-        setRootCauseTurns([]);
-        setChatSummaryDraft((prev) => prev || "");
-        setIsRootCausePanelOpen(true);
-    };
-
-    const sendRootCauseMessage = async () => {
-        if (!rootCauseInput.trim() || isSendingRootCause) return;
-
-        const userTurn: RootCauseTurn = { role: "user", content: rootCauseInput.trim() };
-        const nextTurns = [...rootCauseTurns, userTurn];
-
-        setRootCauseTurns(nextTurns);
-        setRootCauseInput("");
-        setIsSendingRootCause(true);
-
-        try {
-            const reply = await apiClient.post<{ assistantQuestion: string; summaryDraft: string }>(
-                "/api/root-cause-chat",
-                {
-                    questionText: data.questionText,
-                    answerText: solutionFinalAnswer || data.answerText,
-                    analysis: data.analysis,
-                    checkerJson: data.checkerJson,
-                    turns: nextTurns,
-                },
-                { timeout: aiTimeout || 180000 }
-            );
-
-            const assistantText = reply.assistantQuestion?.trim();
-            if (assistantText) {
-                setRootCauseTurns((prev) => [...prev, { role: "assistant", content: assistantText }]);
-            }
-
-            if (reply.summaryDraft) {
-                setChatSummaryDraft(reply.summaryDraft);
-            }
-        } catch (error) {
-            console.error(error);
-            alert(t.common?.messages?.saveFailed || "Request failed");
-        } finally {
-            setIsSendingRootCause(false);
-        }
-    };
+    const systemHintText = useMemo(
+        () => buildSystemHintText(data.diagnosisJson, chatSummaryDraft),
+        [data.diagnosisJson, chatSummaryDraft]
+    );
 
     return (
         <div className="space-y-6">
@@ -641,92 +611,47 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     />
                                 </div>
 
-                                {chatSummaryDraft ? (
-                                    <div className="rounded-md border bg-muted/40 p-3 space-y-2">
-                                        <p className="text-xs text-muted-foreground">{t.editor.chatDraft || "Draft from guided chat"}</p>
-                                        <p className="text-sm">{chatSummaryDraft}</p>
+                                <div className="space-y-2 rounded-md border p-3">
+                                    <p className="text-sm text-muted-foreground">
+                                        {t.editor.systemHintTitle || "System Hint (Think by yourself first, then click below)"}
+                                    </p>
+
+                                    {!showSystemHint ? (
                                         <Button
                                             type="button"
-                                            size="sm"
                                             variant="outline"
-                                            onClick={() => setConfirmedRootCause(chatSummaryDraft)}
+                                            className="w-full"
+                                            onClick={() => setShowSystemHint(true)}
                                         >
-                                            {t.editor.applyDraft || "Use Draft as Final Cause"}
+                                            {t.editor.showSystemHint || "Click to show system hint"}
                                         </Button>
-                                    </div>
-                                ) : null}
-
-                                <Button type="button" variant="outline" onClick={openRootCausePanel} className="w-full">
-                                    <MessageSquare className="mr-2 h-4 w-4" />
-                                    {t.editor.startSelfDiagnosis || "Start Self Diagnosis"}
-                                </Button>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <Textarea
+                                                value={systemHintText || (t.editor.noSystemHint || "No system hint available")}
+                                                readOnly
+                                                className="min-h-[90px]"
+                                            />
+                                            <div className="flex justify-end">
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => setConfirmedRootCause(systemHintText)}
+                                                    disabled={!systemHintText.trim()}
+                                                >
+                                                    <ClipboardPaste className="mr-2 h-4 w-4" />
+                                                    {t.editor.copyHintToTop || "Copy to upper input"}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </CardContent>
                         </Card>
                     </div>
                 </div>
             </div>
-
-            <Dialog open={isRootCausePanelOpen} onOpenChange={setIsRootCausePanelOpen}>
-                <DialogContent className="!left-auto !right-0 !top-0 !h-screen !max-h-none !w-full !max-w-xl !translate-x-0 !translate-y-0 rounded-none border-l sm:!max-w-xl sm:rounded-none">
-                    <DialogHeader>
-                        <DialogTitle>{t.editor.chatCoachTitle || "Root-Cause Coach"}</DialogTitle>
-                        <DialogDescription>
-                            {t.editor.chatCoachDesc || "Guided questions only. Internal diagnosis candidates are hidden."}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="flex h-[calc(100vh-180px)] flex-col gap-3">
-                        <div className="flex-1 space-y-3 overflow-y-auto rounded-md border p-3">
-                            {rootCauseTurns.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">
-                                    {t.editor.chatEmptyHint || "Start by describing your solving process in 2-3 steps."}
-                                </p>
-                            ) : (
-                                rootCauseTurns.map((turn, idx) => (
-                                    <div
-                                        key={`${turn.role}-${idx}`}
-                                        className={`rounded-md p-2 text-sm ${turn.role === "assistant" ? "bg-muted" : "bg-primary/10"}`}
-                                    >
-                                        <p className="mb-1 text-xs text-muted-foreground">
-                                            {turn.role === "assistant" ? (t.editor.chatCoach || "Coach") : (t.editor.chatStudent || "Student")}
-                                        </p>
-                                        <p>{turn.content}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-
-                        <div className="space-y-2">
-                            <Textarea
-                                value={rootCauseInput}
-                                onChange={(e) => setRootCauseInput(e.target.value)}
-                                placeholder={t.editor.chatPlaceholder || "Write your current root-cause hypothesis"}
-                                rows={3}
-                            />
-                            <div className="flex items-center justify-between">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={!chatSummaryDraft}
-                                    onClick={() => setConfirmedRootCause(chatSummaryDraft)}
-                                >
-                                    {t.editor.applyDraft || "Use Draft as Final Cause"}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    onClick={sendRootCauseMessage}
-                                    disabled={isSendingRootCause || !rootCauseInput.trim()}
-                                >
-                                    <Send className="mr-2 h-4 w-4" />
-                                    {isSendingRootCause ? (t.common?.pleaseWait || "Please wait...") : (t.editor.send || "Send")}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
