@@ -5,6 +5,28 @@ import {
 } from "@/lib/ai/structured-json";
 
 describe("structured-json", () => {
+    it("prefers optional structured prefill fields when provided", () => {
+        const result = buildStructuredQuestionJson({
+            questionText: "Solve equation x + 2 = 5",
+            answerText: "x = 3",
+            analysis: "Legacy analysis text",
+            solutionFinalAnswer: "x = 3",
+            solutionSteps: ["Subtract 2 on both sides", "x = 3"],
+            mistakeStudentSteps: ["x + 2 = 5", "x = 5"],
+            mistakeWrongStepIndex: 2,
+            mistakeWhyWrong: "Forgot to subtract 2.",
+            mistakeFixSuggestion: "Apply the same operation to both sides.",
+        });
+
+        expect(result).not.toBeNull();
+        expect(result?.solution.finalAnswer).toBe("x = 3");
+        expect(result?.solution.steps).toEqual(["Subtract 2 on both sides", "x = 3"]);
+        expect(result?.mistake.studentSteps).toEqual(["x + 2 = 5", "x = 5"]);
+        expect(result?.mistake.wrongStepIndex).toBe(1);
+        expect(result?.mistake.whyWrong).toBe("Forgot to subtract 2.");
+        expect(result?.mistake.fixSuggestion).toBe("Apply the same operation to both sides.");
+    });
+
     it("builds structuredJson v2 from parsed question fields", () => {
         const result = buildStructuredQuestionJson({
             questionText: "Solve equation x + 2 = 5",
@@ -21,6 +43,26 @@ describe("structured-json", () => {
         expect(result?.knowledge.tags).toEqual([]);
         expect(result?.solution.finalAnswer).toBe("x = 3");
         expect(result?.mistake.studentSteps).toEqual(["Step 1: move constant", "Step 2: simplify"]);
+    });
+
+    it("falls back to analysis-derived steps when optional structured fields are missing", () => {
+        const result = buildStructuredQuestionJson({
+            questionText: "Compute 1/2 + 1/3",
+            answerText: "5/6",
+            analysis: "Find common denominator.\nAdd numerators.\nSimplify.",
+            solutionFinalAnswer: "",
+            solutionSteps: [],
+            mistakeStudentSteps: [],
+            mistakeWrongStepIndex: null,
+            mistakeWhyWrong: "",
+            mistakeFixSuggestion: "",
+        });
+
+        expect(result).not.toBeNull();
+        expect(result?.solution.finalAnswer).toBe("5/6");
+        expect(result?.solution.steps).toEqual(["Find common denominator.", "Add numerators.", "Simplify."]);
+        expect(result?.mistake.studentSteps).toEqual(["Find common denominator.", "Add numerators.", "Simplify."]);
+        expect(result?.mistake.wrongStepIndex).toBeNull();
     });
 
     it("returns null when required text fields are missing", () => {
