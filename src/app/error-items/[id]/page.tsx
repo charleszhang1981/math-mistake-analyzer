@@ -557,7 +557,7 @@ export default function ErrorDetailPage() {
                                             className="w-full rounded-lg border hover:border-primary/50 transition-colors"
                                         />
                                         <p className="text-xs text-muted-foreground mt-1 text-center">
-                                            馃挕 {t.detail?.clickToEnlarge || 'Click to enlarge'}
+                                            {t.detail?.clickToEnlarge || 'Click to enlarge'}
                                         </p>
                                     </div>
                                 )}
@@ -612,7 +612,7 @@ export default function ErrorDetailPage() {
                                                 gradeStage={educationStage}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                {t.editor?.tagsHint || '馃挕 Select from standard or custom tags'}
+                                                {t.editor?.tagsHint || 'Select from standard or custom tags'}
                                             </p>
                                             <div className="flex gap-2">
                                                 <Button size="sm" onClick={saveTagsHandler}>
@@ -967,7 +967,7 @@ export default function ErrorDetailPage() {
                                 className="absolute -top-12 right-0 text-white hover:text-gray-300 text-lg font-semibold bg-black/50 px-4 py-2 rounded"
                                 onClick={() => setIsImageViewerOpen(false)}
                             >
-                                {t.detail?.close || '鉁?Close'}
+                                {t.detail?.close || 'Close'}
                             </button>
                             <img
                                 src={item.originalImageUrl}

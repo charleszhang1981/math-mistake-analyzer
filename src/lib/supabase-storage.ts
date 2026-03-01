@@ -58,6 +58,31 @@ function retryDelayMs(attempt: number): number {
     return BASE_RETRY_DELAY_MS * (attempt + 1);
 }
 
+function normalizeSignedUrl(supabaseUrl: string, signedPath: string): string {
+    if (signedPath.startsWith('http://') || signedPath.startsWith('https://')) {
+        return signedPath;
+    }
+
+    if (signedPath.startsWith('/storage/v1/')) {
+        return `${supabaseUrl}${signedPath}`;
+    }
+
+    if (signedPath.startsWith('/object/')) {
+        return `${supabaseUrl}/storage/v1${signedPath}`;
+    }
+
+    const normalizedPath = signedPath.replace(/^\/+/, '');
+    if (normalizedPath.startsWith('storage/v1/')) {
+        return `${supabaseUrl}/${normalizedPath}`;
+    }
+
+    if (normalizedPath.startsWith('object/')) {
+        return `${supabaseUrl}/storage/v1/${normalizedPath}`;
+    }
+
+    return `${supabaseUrl}/${normalizedPath}`;
+}
+
 async function parseSupabaseError(res: Response): Promise<string> {
     try {
         const body = (await res.json()) as SupabaseErrorBody;
@@ -237,12 +262,7 @@ export async function createSignedObjectUrl(params: {
             if (!signedPath) {
                 throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Missing signed URL in response');
             }
-
-            if (signedPath.startsWith('http://') || signedPath.startsWith('https://')) {
-                return signedPath;
-            }
-
-            return `${supabaseUrl}${signedPath}`;
+            return normalizeSignedUrl(supabaseUrl, signedPath);
         }
 
         const message = await parseSupabaseError(res);
