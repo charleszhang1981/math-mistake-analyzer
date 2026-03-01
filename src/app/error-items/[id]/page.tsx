@@ -43,14 +43,69 @@ interface ErrorItemDetail {
     structuredJson?: StructuredQuestionJson | null;
 }
 
+function linesToText(lines?: string[] | null): string {
+    if (!Array.isArray(lines) || lines.length === 0) return "";
+    return lines.join("\n");
+}
+
+function textToLines(text: string): string[] {
+    return text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+}
+
+function toOneBasedIndex(zeroBasedIndex: number | null | undefined): string {
+    if (!Number.isInteger(zeroBasedIndex) || zeroBasedIndex === null || zeroBasedIndex === undefined) {
+        return "";
+    }
+    return String(zeroBasedIndex + 1);
+}
+
+function toNullableInt(value: string): number | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) return null;
+    return parsed;
+}
+
+function normalizeMathLine(line: string): string {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+
+    if (/[`$]/.test(trimmed) || /\\\(|\\\[/.test(trimmed)) {
+        return line;
+    }
+
+    const hasLatexCommand = /\\[a-zA-Z]+/.test(trimmed);
+    const hasMathOperator = /[=+\-*/^]/.test(trimmed);
+    if (!hasLatexCommand && !hasMathOperator) {
+        return line;
+    }
+
+    const naturalText = trimmed
+        .replace(/\\[a-zA-Z]+/g, "")
+        .replace(/[{}\[\]()0-9+\-*/^_=.,:\s]/g, "");
+    if (/[A-Za-z\u4e00-\u9fff]/.test(naturalText)) {
+        return line;
+    }
+
+    return `$${trimmed}$`;
+}
+
+function buildSolutionMarkdown(stepsText: string): string {
+    const lines = textToLines(stepsText);
+    if (lines.length === 0) return "";
+    return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
+}
+
 export default function ErrorDetailPage() {
     const params = useParams();
     const router = useRouter();
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [item, setItem] = useState<ErrorItemDetail | null>(null);
     const [loading, setLoading] = useState(true);
-    const [isEditingNotes, setIsEditingNotes] = useState(false);
-    const [notesInput, setNotesInput] = useState("");
     const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
     const [isEditingTags, setIsEditingTags] = useState(false);
     const [tagsInput, setTagsInput] = useState<string[]>([]);
@@ -59,6 +114,14 @@ export default function ErrorDetailPage() {
     const [paperLevelInput, setPaperLevelInput] = useState("a");
     const [isEditingRootCause, setIsEditingRootCause] = useState(false);
     const [rootCauseInput, setRootCauseInput] = useState("");
+    const [isEditingSolution, setIsEditingSolution] = useState(false);
+    const [solutionFinalAnswerInput, setSolutionFinalAnswerInput] = useState("");
+    const [solutionStepsInput, setSolutionStepsInput] = useState("");
+    const [isEditingMistake, setIsEditingMistake] = useState(false);
+    const [mistakeStudentStepsInput, setMistakeStudentStepsInput] = useState("");
+    const [mistakeWrongStepIndexInput, setMistakeWrongStepIndexInput] = useState("");
+    const [mistakeWhyWrongInput, setMistakeWhyWrongInput] = useState("");
+    const [mistakeFixSuggestionInput, setMistakeFixSuggestionInput] = useState("");
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
@@ -125,16 +188,6 @@ export default function ErrorDetailPage() {
         }
     };
 
-    const startEditingNotes = () => {
-        setNotesInput(item?.userNotes || "");
-        setIsEditingNotes(true);
-    };
-
-    const cancelEditingNotes = () => {
-        setIsEditingNotes(false);
-        setNotesInput("");
-    };
-
     const startEditingTags = () => {
         if (item) {
             // 浼樺厛浣跨敤鏂扮殑 tags 鍏宠仈
@@ -145,7 +198,7 @@ export default function ErrorDetailPage() {
                 try {
                     const tags = JSON.parse(item.knowledgePoints);
                     setTagsInput(tags);
-                } catch (e) {
+                } catch {
                     setTagsInput([]);
                 }
             } else {
@@ -253,12 +306,6 @@ export default function ErrorDetailPage() {
     const [isEditingQuestion, setIsEditingQuestion] = useState(false);
     const [questionInput, setQuestionInput] = useState("");
 
-    const [isEditingAnswer, setIsEditingAnswer] = useState(false);
-    const [answerInput, setAnswerInput] = useState("");
-
-    const [isEditingAnalysis, setIsEditingAnalysis] = useState(false);
-    const [analysisInput, setAnalysisInput] = useState("");
-
     // --- Question Handlers ---
     const startEditingQuestion = () => {
         if (item) {
@@ -284,67 +331,117 @@ export default function ErrorDetailPage() {
         setQuestionInput("");
     };
 
-    // --- Answer Handlers ---
-    const startEditingAnswer = () => {
-        if (item) {
-            setAnswerInput(item.answerText);
-            setIsEditingAnswer(true);
+    const startEditingSolution = () => {
+        const structured = normalizeStructuredQuestionJson(item?.structuredJson);
+        if (!structured) {
+            alert(t.common?.messages?.saveFailed || "Save failed");
+            return;
         }
+
+        setSolutionFinalAnswerInput(structured.solution.finalAnswer || "");
+        setSolutionStepsInput(linesToText(structured.solution.steps));
+        setIsEditingSolution(true);
     };
 
-    const saveAnswerHandler = async () => {
-        try {
-            await apiClient.put(`/api/error-items/${item?.id}`, { answerText: answerInput });
-            setIsEditingAnswer(false);
-            if (item) setItem({ ...item, answerText: answerInput });
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
-        } catch (error) {
-            console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
-        }
+    const cancelEditingSolution = () => {
+        setIsEditingSolution(false);
+        setSolutionFinalAnswerInput("");
+        setSolutionStepsInput("");
     };
 
-    const cancelEditingAnswer = () => {
-        setIsEditingAnswer(false);
-        setAnswerInput("");
-    };
-
-    // --- Analysis Handlers ---
-    const startEditingAnalysis = () => {
-        if (item) {
-            setAnalysisInput(item.analysis);
-            setIsEditingAnalysis(true);
-        }
-    };
-
-    const saveAnalysisHandler = async () => {
-        try {
-            await apiClient.put(`/api/error-items/${item?.id}`, { analysis: analysisInput });
-            setIsEditingAnalysis(false);
-            if (item) setItem({ ...item, analysis: analysisInput });
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
-        } catch (error) {
-            console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
-        }
-    };
-
-    const cancelEditingAnalysis = () => {
-        setIsEditingAnalysis(false);
-        setAnalysisInput("");
-    };
-
-    const saveNotes = async () => {
+    const saveSolutionHandler = async () => {
         if (!item) return;
+        const structured = normalizeStructuredQuestionJson(item.structuredJson);
+        if (!structured) {
+            alert(t.common?.messages?.saveFailed || "Save failed");
+            return;
+        }
+
+        const finalAnswer = solutionFinalAnswerInput.trim();
+        const nextStructured: StructuredQuestionJson = {
+            ...structured,
+            solution: {
+                ...structured.solution,
+                finalAnswer,
+                steps: textToLines(solutionStepsInput),
+            },
+        };
 
         try {
-            await apiClient.patch(`/api/error-items/${item.id}/notes`, { userNotes: notesInput });
-            setItem({ ...item, userNotes: notesInput });
-            setIsEditingNotes(false);
-            alert(t.common?.messages?.noteSaveSuccess || 'Notes saved successfully');
+            await apiClient.put(`/api/error-items/${item.id}`, {
+                answerText: finalAnswer,
+                structuredJson: nextStructured,
+            });
+            setItem({
+                ...item,
+                answerText: finalAnswer,
+                structuredJson: nextStructured,
+            });
+            setIsEditingSolution(false);
+            alert(t.common?.messages?.saveSuccess || "Saved successfully");
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            alert(t.common?.messages?.saveFailed || "Save failed");
+        }
+    };
+
+    const startEditingMistake = () => {
+        const structured = normalizeStructuredQuestionJson(item?.structuredJson);
+        if (!structured) {
+            alert(t.common?.messages?.saveFailed || "Save failed");
+            return;
+        }
+
+        setMistakeStudentStepsInput(linesToText(structured.mistake.studentSteps));
+        setMistakeWrongStepIndexInput(toOneBasedIndex(structured.mistake.wrongStepIndex));
+        setMistakeWhyWrongInput(structured.mistake.whyWrong || "");
+        setMistakeFixSuggestionInput(structured.mistake.fixSuggestion || "");
+        setIsEditingMistake(true);
+    };
+
+    const cancelEditingMistake = () => {
+        setIsEditingMistake(false);
+        setMistakeStudentStepsInput("");
+        setMistakeWrongStepIndexInput("");
+        setMistakeWhyWrongInput("");
+        setMistakeFixSuggestionInput("");
+    };
+
+    const saveMistakeHandler = async () => {
+        if (!item) return;
+        const structured = normalizeStructuredQuestionJson(item.structuredJson);
+        if (!structured) {
+            alert(t.common?.messages?.saveFailed || "Save failed");
+            return;
+        }
+
+        const nextStructured: StructuredQuestionJson = {
+            ...structured,
+            mistake: {
+                ...structured.mistake,
+                studentSteps: textToLines(mistakeStudentStepsInput),
+                wrongStepIndex: (() => {
+                    const oneBased = toNullableInt(mistakeWrongStepIndexInput);
+                    return oneBased ? oneBased - 1 : null;
+                })(),
+                whyWrong: mistakeWhyWrongInput.trim(),
+                fixSuggestion: mistakeFixSuggestionInput.trim(),
+            },
+        };
+
+        try {
+            await apiClient.put(`/api/error-items/${item.id}`, {
+                structuredJson: nextStructured,
+            });
+            setItem({
+                ...item,
+                structuredJson: nextStructured,
+            });
+            setIsEditingMistake(false);
+            alert(t.common?.messages?.saveSuccess || "Saved successfully");
+        } catch (error) {
+            console.error(error);
+            alert(t.common?.messages?.saveFailed || "Save failed");
         }
     };
 
@@ -359,15 +456,21 @@ export default function ErrorDetailPage() {
         try {
             const parsed = JSON.parse(item.knowledgePoints);
             tags = Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
+        } catch {
             tags = [];
         }
     }
 
     const structured = normalizeStructuredQuestionJson(item.structuredJson);
+    const solutionFinalAnswer = structured?.solution.finalAnswer || "";
+    const solutionStepsText = linesToText(structured?.solution.steps);
+    const mistakeStudentStepsText = linesToText(structured?.mistake.studentSteps);
+    const mistakeWrongStepIndex = toOneBasedIndex(structured?.mistake.wrongStepIndex);
+    const mistakeWhyWrong = structured?.mistake.whyWrong || "";
+    const mistakeFixSuggestion = structured?.mistake.fixSuggestion || "";
     const confirmedRootCause = structured?.rootCause.confirmedCause?.trim() || "";
     const detailLabels = t.detail as Record<string, string | undefined>;
-    const detailText = (key: string, fallback: string) => detailLabels?.[key] || fallback;
+    const notConfirmedText = detailLabels.notConfirmed || "Not confirmed yet";
 
     return (
         <main className="min-h-screen bg-background">
@@ -612,119 +715,29 @@ export default function ErrorDetailPage() {
                             </CardContent>
                         </Card>
 
-                        <Card>
-                            <CardHeader>
-                                <div className="flex justify-between items-center">
-                                    <CardTitle>{t.detail.yourNotes}</CardTitle>
-                                    {!isEditingNotes && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={startEditingNotes}
-                                        >
-                                            <Edit className="h-4 w-4 mr-1" />
-                                            {t.detail.editNotes || "Edit"}
-                                        </Button>
-                                    )}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                {isEditingNotes ? (
-                                    <div className="space-y-3">
-                                        <Textarea
-                                            value={notesInput}
-                                            onChange={(e) => setNotesInput(e.target.value)}
-                                            placeholder={t.detail.notesPlaceholder || "Enter your notes..."}
-                                            rows={5}
-                                            className="w-full"
-                                        />
-                                        <div className="flex gap-2">
-                                            <Button
-                                                size="sm"
-                                                onClick={saveNotes}
-                                            >
-                                                <Save className="h-4 w-4 mr-1" />
-                                                {t.common.save || "Save"}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={cancelEditingNotes}
-                                            >
-                                                <X className="h-4 w-4 mr-1" />
-                                                {t.common.cancel || "Cancel"}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="whitespace-pre-wrap">
-                                        {item.userNotes ? (
-                                            <p className="text-foreground">{item.userNotes}</p>
-                                        ) : (
-                                            <p className="text-muted-foreground italic">
-                                                {t.detail.noNotes}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
                     </div>
 
-                    {/* Right Column: Analysis & Answer */}
+                    {/* Right Column: G/H/I */}
                     <div className="space-y-6 min-w-0">
-                        <Card className="border-primary/20">
-                            <CardHeader>
-                                <div className="flex justify-between items-center">
-                                    <CardTitle className="text-primary">{t.detail.correctAnswer}</CardTitle>
-                                    {!isEditingAnswer && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={startEditingAnswer}
-                                        >
-                                            <Edit className="h-4 w-4 mr-1" />
-                                            {t.common?.edit || 'Edit'}
-                                        </Button>
-                                    )}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                {isEditingAnswer ? (
-                                    <div className="space-y-3">
-                                        <Textarea
-                                            value={answerInput}
-                                            onChange={(e) => setAnswerInput(e.target.value)}
-                                            placeholder="Enter answer..."
-                                            rows={5}
-                                            className="w-full font-mono text-sm"
-                                        />
-                                        <div className="flex gap-2">
-                                            <Button size="sm" onClick={saveAnswerHandler}>
-                                                <Save className="h-4 w-4 mr-1" />
-                                                {t.common?.save || 'Save'}
-                                            </Button>
-                                            <Button size="sm" variant="outline" onClick={cancelEditingAnswer}>
-                                                <X className="h-4 w-4 mr-1" />
-                                                {t.common?.cancel || 'Cancel'}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <MarkdownRenderer content={item.answerText} className="font-semibold" />
-                                )}
-                            </CardContent>
-                        </Card>
+                        {!structured && (
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">
+                                        {t.common?.messages?.loadFailed || "Structured data is missing"}
+                                    </p>
+                                </CardContent>
+                            </Card>
+                        )}
 
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
-                                    <CardTitle>{t.detail.analysis}</CardTitle>
-                                    {!isEditingAnalysis && (
+                                    <CardTitle>{t.editor.standardSolution || "G Standard Solution"}</CardTitle>
+                                    {!isEditingSolution && structured && (
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={startEditingAnalysis}
+                                            onClick={startEditingSolution}
                                         >
                                             <Edit className="h-4 w-4 mr-1" />
                                             {t.common?.edit || 'Edit'}
@@ -733,36 +746,168 @@ export default function ErrorDetailPage() {
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {isEditingAnalysis ? (
+                                {isEditingSolution && structured ? (
                                     <div className="space-y-3">
-                                        <Textarea
-                                            value={analysisInput}
-                                            onChange={(e) => setAnalysisInput(e.target.value)}
-                                            placeholder="Enter analysis..."
-                                            rows={12}
-                                            className="w-full font-mono text-sm"
-                                        />
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.standardAnswer || "Standard Answer"}
+                                            </h4>
+                                            <Textarea
+                                                value={solutionFinalAnswerInput}
+                                                onChange={(e) => setSolutionFinalAnswerInput(e.target.value)}
+                                                className="min-h-[90px] font-mono text-sm"
+                                                placeholder={t.editor.placeholder || "Supports Markdown and LaTeX..."}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.solutionSteps || "Step-by-Step Solution"}
+                                            </h4>
+                                            <Textarea
+                                                value={solutionStepsInput}
+                                                onChange={(e) => setSolutionStepsInput(e.target.value)}
+                                                className="min-h-[220px] font-mono text-sm"
+                                                placeholder={t.editor.solutionStepsPlaceholder || "One step per line"}
+                                            />
+                                        </div>
                                         <div className="flex gap-2">
-                                            <Button size="sm" onClick={saveAnalysisHandler}>
+                                            <Button size="sm" onClick={saveSolutionHandler}>
                                                 <Save className="h-4 w-4 mr-1" />
-                                                {t.common?.save || 'Save'}
+                                                {t.common?.save || "Save"}
                                             </Button>
-                                            <Button size="sm" variant="outline" onClick={cancelEditingAnalysis}>
+                                            <Button size="sm" variant="outline" onClick={cancelEditingSolution}>
                                                 <X className="h-4 w-4 mr-1" />
-                                                {t.common?.cancel || 'Cancel'}
+                                                {t.common?.cancel || "Cancel"}
                                             </Button>
                                         </div>
                                     </div>
                                 ) : (
-                                    <MarkdownRenderer content={item.analysis} />
+                                    <>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.standardAnswer || "Standard Answer"}
+                                            </h4>
+                                            <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={normalizeMathLine(solutionFinalAnswer || "")} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.solutionSteps || "Step-by-Step Solution"}
+                                            </h4>
+                                            <div className="min-h-[220px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={buildSolutionMarkdown(solutionStepsText)} />
+                                            </div>
+                                        </div>
+                                    </>
                                 )}
                             </CardContent>
                         </Card>
+
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
-                                    <CardTitle>{detailText("finalCause", "Final Cause (Confirmed)")}</CardTitle>
-                                    {!isEditingRootCause && (
+                                    <CardTitle>{t.editor.errorLocalization || "H Error Localization"}</CardTitle>
+                                    {!isEditingMistake && structured && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={startEditingMistake}
+                                        >
+                                            <Edit className="h-4 w-4 mr-1" />
+                                            {t.common?.edit || 'Edit'}
+                                        </Button>
+                                    )}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {isEditingMistake && structured ? (
+                                    <div className="space-y-3">
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.studentSteps || "Student Steps"}</h4>
+                                            <Textarea
+                                                value={mistakeStudentStepsInput}
+                                                onChange={(e) => setMistakeStudentStepsInput(e.target.value)}
+                                                className="min-h-[140px] font-mono text-sm"
+                                                placeholder={t.editor.solutionStepsPlaceholder || "One step per line"}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.wrongStepIndex || "Wrong Step Index (1-based)"}
+                                            </h4>
+                                            <Input
+                                                value={mistakeWrongStepIndexInput}
+                                                onChange={(e) => setMistakeWrongStepIndexInput(e.target.value)}
+                                                inputMode="numeric"
+                                                placeholder="e.g. 2"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.whyWrong || "Why Wrong"}</h4>
+                                            <Textarea
+                                                value={mistakeWhyWrongInput}
+                                                onChange={(e) => setMistakeWhyWrongInput(e.target.value)}
+                                                className="min-h-[90px]"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.fixSuggestion || "How to Fix"}</h4>
+                                            <Textarea
+                                                value={mistakeFixSuggestionInput}
+                                                onChange={(e) => setMistakeFixSuggestionInput(e.target.value)}
+                                                className="min-h-[90px]"
+                                            />
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" onClick={saveMistakeHandler}>
+                                                <Save className="h-4 w-4 mr-1" />
+                                                {t.common?.save || "Save"}
+                                            </Button>
+                                            <Button size="sm" variant="outline" onClick={cancelEditingMistake}>
+                                                <X className="h-4 w-4 mr-1" />
+                                                {t.common?.cancel || "Cancel"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.studentSteps || "Student Steps"}</h4>
+                                            <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={buildSolutionMarkdown(mistakeStudentStepsText)} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {t.editor.wrongStepIndex || "Wrong Step Index (1-based)"}
+                                            </h4>
+                                            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                                                {mistakeWrongStepIndex.trim() || "-"}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.whyWrong || "Why Wrong"}</h4>
+                                            <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={mistakeWhyWrong || ""} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="text-sm font-medium">{t.editor.fixSuggestion || "How to Fix"}</h4>
+                                            <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
+                                                <MarkdownRenderer content={mistakeFixSuggestion || ""} />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <div className="flex justify-between items-center">
+                                    <CardTitle>{t.editor.selfDiagnosis || "I Root-Cause Self Diagnosis"}</CardTitle>
+                                    {!isEditingRootCause && structured && (
                                         <Button variant="ghost" size="sm" onClick={startEditingRootCause}>
                                             <Edit className="h-4 w-4 mr-1" />
                                             {t.common?.edit || "Edit"}
@@ -771,12 +916,17 @@ export default function ErrorDetailPage() {
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-3">
-                                {isEditingRootCause ? (
+                                <div className="space-y-2">
+                                    <h4 className="text-sm font-medium">
+                                        {t.editor.finalRootCause || "Final Root Cause (Confirmed)"}
+                                    </h4>
+                                </div>
+                                {isEditingRootCause && structured ? (
                                     <div className="space-y-3">
                                         <Textarea
                                             value={rootCauseInput}
                                             onChange={(e) => setRootCauseInput(e.target.value)}
-                                            placeholder={detailText("finalCausePlaceholder", "Confirm or edit final cause")}
+                                            placeholder={t.editor.finalRootCausePlaceholder || "Summarize the confirmed root cause"}
                                             rows={4}
                                         />
                                         <div className="flex gap-2">
@@ -791,14 +941,12 @@ export default function ErrorDetailPage() {
                                         </div>
                                     </div>
                                 ) : (
-                                    <p className="text-sm">
-                                        {confirmedRootCause || detailText("notConfirmed", "Not confirmed yet")}
-                                    </p>
+                                    <div className="min-h-[90px] rounded-md border bg-muted/20 p-3 text-sm">
+                                        {confirmedRootCause || notConfirmedText}
+                                    </div>
                                 )}
                             </CardContent>
                         </Card>
-                        {/* 鎿嶄綔鎸夐挳 */}
-
                     </div>
                 </div>
             </div>
