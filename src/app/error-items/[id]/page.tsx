@@ -523,8 +523,8 @@ export default function ErrorDetailPage() {
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-2">
-                    {/* Left Column: Question & Image */}
-                    <div className="space-y-6 min-w-0">
+                    {/* Top Row: Question spans both columns */}
+                    <div className="min-w-0 lg:col-span-2">
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
@@ -717,7 +717,7 @@ export default function ErrorDetailPage() {
 
                     </div>
 
-                    {/* Right Column: G/H/I */}
+                    {/* Bottom Left: G */}
                     <div className="space-y-6 min-w-0">
                         {!structured && (
                             <Card>
@@ -803,6 +803,11 @@ export default function ErrorDetailPage() {
                                 )}
                             </CardContent>
                         </Card>
+
+                    </div>
+
+                    {/* Bottom Right: H + I */}
+                    <div className="space-y-6 min-w-0">
 
                         <Card>
                             <CardHeader>
