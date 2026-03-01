@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { internalError, unauthorized } from "@/lib/api-errors";
-import { extractDiagnosisCause } from "@/lib/review-scheduler";
 
 const logger = createLogger("api:review:list");
 
@@ -66,7 +65,7 @@ export async function GET(req: Request) {
                     questionText: item.questionText || "",
                     analysis: item.analysis || null,
                     tags: item.tags.map((tag) => tag.name),
-                    cause: extractDiagnosisCause(item.diagnosisJson),
+                    cause: "Uncategorized",
                     nextDueAt: nextDueAt.toISOString(),
                     isDue,
                     lastReviewedAt: lastCompleted?.completedAt?.toISOString() || null,

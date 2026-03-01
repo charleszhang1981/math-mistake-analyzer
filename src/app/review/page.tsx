@@ -14,15 +14,12 @@ import { cleanMarkdown } from "@/lib/markdown-utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { ReviewListResponse, ReviewQueueItem } from "@/types/api";
 
-type GroupMode = "cause" | "tag";
-
 export default function ReviewPage() {
     const { t } = useLanguage();
     const [items, setItems] = useState<ReviewQueueItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [submittingItemId, setSubmittingItemId] = useState<string | null>(null);
     const [dueOnly, setDueOnly] = useState(true);
-    const [groupMode, setGroupMode] = useState<GroupMode>("cause");
     const [notesByItem, setNotesByItem] = useState<Record<string, string>>({});
 
     const fetchReviewItems = async () => {
@@ -45,13 +42,6 @@ export default function ReviewPage() {
         const groups = new Map<string, ReviewQueueItem[]>();
 
         for (const item of items) {
-            if (groupMode === "cause") {
-                const key = item.cause || "Uncategorized";
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key)!.push(item);
-                continue;
-            }
-
             const tags = item.tags.length > 0 ? item.tags : ["Untagged"];
             for (const tag of tags) {
                 if (!groups.has(tag)) groups.set(tag, []);
@@ -62,7 +52,7 @@ export default function ReviewPage() {
         return Array.from(groups.entries())
             .map(([key, groupItems]) => ({ key, items: groupItems }))
             .sort((a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key));
-    }, [items, groupMode]);
+    }, [items]);
 
     const handleRecord = async (errorItemId: string, isCorrect: boolean) => {
         setSubmittingItemId(errorItemId);
@@ -122,20 +112,6 @@ export default function ReviewPage() {
                         onClick={() => setDueOnly(false)}
                     >
                         All
-                    </Button>
-                    <Button
-                        variant={groupMode === "cause" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setGroupMode("cause")}
-                    >
-                        Group by Cause
-                    </Button>
-                    <Button
-                        variant={groupMode === "tag" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setGroupMode("tag")}
-                    >
-                        Group by Tag
                     </Button>
                 </div>
 

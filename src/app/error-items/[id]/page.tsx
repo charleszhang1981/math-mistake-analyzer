@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -16,8 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiClient } from "@/lib/api-client";
 import { UserProfile } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
-import type { CheckerJson, DiagnosisJson } from "@/lib/math-checker";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { normalizeStructuredQuestionJson, type StructuredQuestionJson } from "@/lib/ai/structured-json";
 
 interface KnowledgeTag {
     id: string;
@@ -29,8 +28,8 @@ interface ErrorItemDetail {
     questionText: string;
     answerText: string;
     analysis: string;
-    knowledgePoints: string; // 保留兼容旧数据
-    tags: KnowledgeTag[]; // 新的标签关联
+    knowledgePoints: string; // 淇濈暀鍏煎鏃ф暟鎹?
+    tags: KnowledgeTag[]; // 鏂扮殑鏍囩鍏宠仈
     masteryLevel: number;
     originalImageUrl: string;
     userNotes: string | null;
@@ -41,8 +40,7 @@ interface ErrorItemDetail {
     } | null;
     gradeSemester?: string | null;
     paperLevel?: string | null;
-    checkerJson?: CheckerJson | null;
-    diagnosisJson?: DiagnosisJson | null;
+    structuredJson?: StructuredQuestionJson | null;
 }
 
 export default function ErrorDetailPage() {
@@ -59,12 +57,8 @@ export default function ErrorDetailPage() {
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
     const [gradeSemesterInput, setGradeSemesterInput] = useState("");
     const [paperLevelInput, setPaperLevelInput] = useState("a");
-    const [isEditingDiagnosis, setIsEditingDiagnosis] = useState(false);
-    const [diagnosisFinalCauseInput, setDiagnosisFinalCauseInput] = useState("");
-    const [isRootCauseDialogOpen, setIsRootCauseDialogOpen] = useState(false);
+    const [isEditingRootCause, setIsEditingRootCause] = useState(false);
     const [rootCauseInput, setRootCauseInput] = useState("");
-    const [rootCauseTurns, setRootCauseTurns] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
-    const [isSendingRootCause, setIsSendingRootCause] = useState(false);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
@@ -143,11 +137,11 @@ export default function ErrorDetailPage() {
 
     const startEditingTags = () => {
         if (item) {
-            // 优先使用新的 tags 关联
+            // 浼樺厛浣跨敤鏂扮殑 tags 鍏宠仈
             if (item.tags && item.tags.length > 0) {
                 setTagsInput(item.tags.map(t => t.name));
             } else if (item.knowledgePoints) {
-                // 回退到旧的 knowledgePoints 字段
+                // 鍥為€€鍒版棫鐨?knowledgePoints 瀛楁
                 try {
                     const tags = JSON.parse(item.knowledgePoints);
                     setTagsInput(tags);
@@ -163,9 +157,9 @@ export default function ErrorDetailPage() {
 
     const saveTagsHandler = async () => {
         try {
-            // 直接传递标签名称数组，后端会处理关联
+            // 鐩存帴浼犻€掓爣绛惧悕绉版暟缁勶紝鍚庣浼氬鐞嗗叧鑱?
             await apiClient.put(`/api/error-items/${item?.id}`, {
-                knowledgePoints: tagsInput, // 后端接收数组
+                knowledgePoints: tagsInput, // 鍚庣鎺ユ敹鏁扮粍
             });
 
             setIsEditingTags(false);
@@ -212,78 +206,47 @@ export default function ErrorDetailPage() {
         setPaperLevelInput("a");
     };
 
-    const startEditingDiagnosis = () => {
-        if (!item?.diagnosisJson) return;
-        setDiagnosisFinalCauseInput(item.diagnosisJson.finalCause || "");
-        setIsEditingDiagnosis(true);
+    const startEditingRootCause = () => {
+        const structured = normalizeStructuredQuestionJson(item?.structuredJson);
+        setRootCauseInput(structured?.rootCause.confirmedCause || "");
+        setIsEditingRootCause(true);
     };
 
-    const cancelEditingDiagnosis = () => {
-        setIsEditingDiagnosis(false);
-        setDiagnosisFinalCauseInput("");
+    const cancelEditingRootCause = () => {
+        setIsEditingRootCause(false);
+        setRootCauseInput("");
     };
 
-    const saveDiagnosisHandler = async () => {
-        if (!item?.diagnosisJson) return;
+    const saveRootCauseHandler = async () => {
+        if (!item) return;
 
-        const nextDiagnosis: DiagnosisJson = {
-            ...item.diagnosisJson,
-            finalCause: diagnosisFinalCauseInput.trim() || null,
+        const currentStructured = normalizeStructuredQuestionJson(item.structuredJson);
+        if (!currentStructured) {
+            alert(t.common?.messages?.saveFailed || "Save failed");
+            return;
+        }
+
+        const nextStructured: StructuredQuestionJson = {
+            ...currentStructured,
+            rootCause: {
+                ...currentStructured.rootCause,
+                confirmedCause: rootCauseInput.trim(),
+            },
         };
 
         try {
             await apiClient.put(`/api/error-items/${item.id}`, {
-                diagnosisJson: nextDiagnosis,
+                structuredJson: nextStructured,
             });
             setItem({
                 ...item,
-                diagnosisJson: nextDiagnosis,
+                structuredJson: nextStructured,
             });
-            setIsEditingDiagnosis(false);
+            setIsEditingRootCause(false);
             alert(t.common?.messages?.saveSuccess || "Saved successfully");
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.saveFailed || "Save failed");
-        }
-    };
-
-    const openRootCauseDialog = () => {
-        setRootCauseInput("");
-        setRootCauseTurns([]);
-        setIsRootCauseDialogOpen(true);
-    };
-
-    const sendRootCauseMessage = async () => {
-        if (!item || !rootCauseInput.trim() || isSendingRootCause) return;
-
-        const userTurn = { role: "user" as const, content: rootCauseInput.trim() };
-        const nextTurns = [...rootCauseTurns, userTurn];
-
-        setRootCauseTurns(nextTurns);
-        setRootCauseInput("");
-        setIsSendingRootCause(true);
-
-        try {
-            const reply = await apiClient.post<{ assistantQuestion: string; summaryDraft: string }>(
-                `/api/error-items/${item.id}/root-cause-chat`,
-                { turns: nextTurns },
-            );
-
-            const assistantText = reply.assistantQuestion?.trim();
-            if (assistantText) {
-                setRootCauseTurns((prev) => [...prev, { role: "assistant", content: assistantText }]);
-            }
-
-            const hasConfirmedFinalCause = Boolean(item.diagnosisJson?.finalCause?.trim());
-            if (reply.summaryDraft && !hasConfirmedFinalCause) {
-                setDiagnosisFinalCauseInput((prev) => prev.trim() || reply.summaryDraft);
-                setIsEditingDiagnosis(true);
-            }
-        } catch (error) {
-            console.error(error);
-            alert(t.common?.messages?.saveFailed || "Request failed");
-        } finally {
-            setIsSendingRootCause(false);
         }
     };
 
@@ -388,7 +351,7 @@ export default function ErrorDetailPage() {
     if (loading) return <div className="p-8 text-center">{t.common.loading}</div>;
     if (!item) return <div className="p-8 text-center">{t.detail.notFound || "Item not found"}</div>;
 
-    // 优先从 tags 关联获取，回退到 knowledgePoints
+    // 浼樺厛浠?tags 鍏宠仈鑾峰彇锛屽洖閫€鍒?knowledgePoints
     let tags: string[] = [];
     if (item.tags && item.tags.length > 0) {
         tags = item.tags.map(t => t.name);
@@ -401,8 +364,8 @@ export default function ErrorDetailPage() {
         }
     }
 
-    const checker = item.checkerJson || null;
-    const diagnosis = item.diagnosisJson || null;
+    const structured = normalizeStructuredQuestionJson(item.structuredJson);
+    const confirmedRootCause = structured?.rootCause.confirmedCause?.trim() || "";
     const detailLabels = t.detail as Record<string, string | undefined>;
     const detailText = (key: string, fallback: string) => detailLabels?.[key] || fallback;
 
@@ -491,7 +454,7 @@ export default function ErrorDetailPage() {
                                             className="w-full rounded-lg border hover:border-primary/50 transition-colors"
                                         />
                                         <p className="text-xs text-muted-foreground mt-1 text-center">
-                                            💡 {t.detail?.clickToEnlarge || 'Click to enlarge'}
+                                            馃挕 {t.detail?.clickToEnlarge || 'Click to enlarge'}
                                         </p>
                                     </div>
                                 )}
@@ -520,7 +483,7 @@ export default function ErrorDetailPage() {
                                     <MarkdownRenderer content={item.questionText} />
                                 )}
 
-                                {/* 知识点标签 */}
+                                {/* 鐭ヨ瘑鐐规爣绛?*/}
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center">
                                         <h4 className="text-sm font-semibold">{t.editor?.tags || 'Knowledge Tags'}</h4>
@@ -546,7 +509,7 @@ export default function ErrorDetailPage() {
                                                 gradeStage={educationStage}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                {t.editor?.tagsHint || '💡 Select from standard or custom tags'}
+                                                {t.editor?.tagsHint || '馃挕 Select from standard or custom tags'}
                                             </p>
                                             <div className="flex gap-2">
                                                 <Button size="sm" onClick={saveTagsHandler}>
@@ -570,7 +533,7 @@ export default function ErrorDetailPage() {
                                     )}
                                 </div>
 
-                                {/* 年级/学期 和 试卷等级 */}
+                                {/* 骞寸骇/瀛︽湡 鍜?璇曞嵎绛夌骇 */}
                                 <div className="space-y-2 pt-4 border-t">
                                     <div className="flex justify-between items-center">
                                         <h4 className="text-sm font-semibold">
@@ -795,186 +758,51 @@ export default function ErrorDetailPage() {
                                 )}
                             </CardContent>
                         </Card>
-
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>{detailText("checker", "Checker")}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3 text-sm">
-                                {checker ? (
-                                    <>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <span className="text-muted-foreground">{detailText("checkerType", "Type")}: </span>
-                                                <span className="font-medium">{checker.type}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-muted-foreground">{detailText("checkable", "Checkable")}: </span>
-                                                <span className="font-medium">{checker.checkable ? "Yes" : "No"}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-muted-foreground">{detailText("standardAnswer", "Standard")}: </span>
-                                                <span className="font-medium">{checker.standard_answer || "-"}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-muted-foreground">{detailText("studentAnswer", "Student")}: </span>
-                                                <span className="font-medium">{checker.student_answer || "-"}</span>
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <span className="text-muted-foreground">{detailText("result", "Result")}: </span>
-                                            {checker.is_correct === true && (
-                                                <Badge className="ml-2 bg-green-600 hover:bg-green-700">Correct</Badge>
-                                            )}
-                                            {checker.is_correct === false && (
-                                                <Badge className="ml-2" variant="destructive">Incorrect</Badge>
-                                            )}
-                                            {checker.is_correct === null && (
-                                                <Badge className="ml-2" variant="secondary">Unknown</Badge>
-                                            )}
-                                        </div>
-
-                                        {checker.diff && (
-                                            <div className="rounded-md border bg-muted/50 p-2">
-                                                <p className="text-xs text-muted-foreground mb-1">{detailText("difference", "Difference")}</p>
-                                                <p>{checker.diff}</p>
-                                            </div>
-                                        )}
-
-                                        {checker.key_intermediates?.length > 0 && (
-                                            <div className="rounded-md border p-2">
-                                                <p className="text-xs text-muted-foreground mb-2">{detailText("intermediates", "Key Intermediates")}</p>
-                                                <div className="space-y-1">
-                                                    {checker.key_intermediates.map((entry) => (
-                                                        <div key={entry.name} className="flex justify-between gap-4">
-                                                            <span className="text-muted-foreground">{entry.name}</span>
-                                                            <span className="font-medium">{entry.value}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </>
-                                ) : (
-                                    <p className="text-muted-foreground">{detailText("noChecker", "No checker result yet.")}</p>
-                                )}
-                            </CardContent>
-                        </Card>
-
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
-                                    <CardTitle>{detailText("diagnosis", "Diagnosis")}</CardTitle>
-                                    <div className="flex items-center gap-2">
-                                        <Button variant="outline" size="sm" onClick={openRootCauseDialog}>
-                                            <MessageSquare className="h-4 w-4 mr-1" />
-                                            {detailText("followup", "Root-Cause Chat")}
+                                    <CardTitle>{detailText("finalCause", "Final Cause (Confirmed)")}</CardTitle>
+                                    {!isEditingRootCause && (
+                                        <Button variant="ghost" size="sm" onClick={startEditingRootCause}>
+                                            <Edit className="h-4 w-4 mr-1" />
+                                            {t.common?.edit || "Edit"}
                                         </Button>
-                                        {diagnosis && !isEditingDiagnosis && (
-                                            <Button variant="ghost" size="sm" onClick={startEditingDiagnosis}>
-                                                <Edit className="h-4 w-4 mr-1" />
-                                                {t.common?.edit || "Edit"}
-                                            </Button>
-                                        )}
-                                    </div>
+                                    )}
                                 </div>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                                {diagnosis ? (
-                                    <>
-                                        <div className="rounded-md border bg-muted/40 p-3 space-y-2">
-                                            <p className="text-xs text-muted-foreground">{detailText("cause", "Cause")}</p>
-                                            <p className="text-sm">
-                                                {detailText("followup", "Root-cause reflection is done through guided chat. Internal candidate causes are hidden.")}
-                                            </p>
+                            <CardContent className="space-y-3">
+                                {isEditingRootCause ? (
+                                    <div className="space-y-3">
+                                        <Textarea
+                                            value={rootCauseInput}
+                                            onChange={(e) => setRootCauseInput(e.target.value)}
+                                            placeholder={detailText("finalCausePlaceholder", "Confirm or edit final cause")}
+                                            rows={4}
+                                        />
+                                        <div className="flex gap-2">
+                                            <Button size="sm" onClick={saveRootCauseHandler}>
+                                                <Save className="h-4 w-4 mr-1" />
+                                                {t.common?.save || "Save"}
+                                            </Button>
+                                            <Button size="sm" variant="outline" onClick={cancelEditingRootCause}>
+                                                <X className="h-4 w-4 mr-1" />
+                                                {t.common?.cancel || "Cancel"}
+                                            </Button>
                                         </div>
-
-                                        <div className="border-t pt-3 space-y-2">
-                                            <p className="text-sm font-semibold">{detailText("finalCause", "Final Cause (Confirmed)")}</p>
-                                            {isEditingDiagnosis ? (
-                                                <div className="space-y-3">
-                                                    <Textarea
-                                                        value={diagnosisFinalCauseInput}
-                                                        onChange={(e) => setDiagnosisFinalCauseInput(e.target.value)}
-                                                        placeholder={detailText("finalCausePlaceholder", "Confirm or edit final cause")}
-                                                        rows={3}
-                                                    />
-                                                    <div className="flex gap-2">
-                                                        <Button size="sm" onClick={saveDiagnosisHandler}>
-                                                            <Save className="h-4 w-4 mr-1" />
-                                                            {t.common?.save || "Save"}
-                                                        </Button>
-                                                        <Button size="sm" variant="outline" onClick={cancelEditingDiagnosis}>
-                                                            <X className="h-4 w-4 mr-1" />
-                                                            {t.common?.cancel || "Cancel"}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <p className="text-sm">
-                                                    {diagnosis.finalCause || detailText("notConfirmed", "Not confirmed yet")}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </>
+                                    </div>
                                 ) : (
-                                    <p className="text-muted-foreground">{detailText("noDiagnosis", "No diagnosis yet.")}</p>
+                                    <p className="text-sm">
+                                        {confirmedRootCause || detailText("notConfirmed", "Not confirmed yet")}
+                                    </p>
                                 )}
                             </CardContent>
                         </Card>
-                        {/* 操作按钮 */}
+                        {/* 鎿嶄綔鎸夐挳 */}
 
                     </div>
                 </div>
             </div>
-
-            <Dialog open={isRootCauseDialogOpen} onOpenChange={setIsRootCauseDialogOpen}>
-                <DialogContent className="sm:max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>{detailText("diagnosis", "Diagnosis")}</DialogTitle>
-                        <DialogDescription>
-                            {detailText("followup", "Use guided questions to confirm the root cause in your own words.")}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="space-y-3">
-                        <div className="max-h-[320px] overflow-y-auto rounded-md border p-3 space-y-3">
-                            {rootCauseTurns.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">
-                                    {detailText("followup", "Start by describing how you solved this question.")}
-                                </p>
-                            ) : (
-                                rootCauseTurns.map((turn, idx) => (
-                                    <div key={`${turn.role}-${idx}`} className={`rounded-md p-2 text-sm ${turn.role === "assistant" ? "bg-muted" : "bg-primary/10"}`}>
-                                        <p className="text-xs text-muted-foreground mb-1">
-                                            {turn.role === "assistant" ? "Coach" : "Student"}
-                                        </p>
-                                        <p>{turn.content}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-
-                        <div className="space-y-2">
-                            <Textarea
-                                value={rootCauseInput}
-                                onChange={(e) => setRootCauseInput(e.target.value)}
-                                placeholder={detailText("finalCausePlaceholder", "Write your current hypothesis of the root cause")}
-                                rows={3}
-                            />
-                            <div className="flex justify-end">
-                                <Button size="sm" onClick={sendRootCauseMessage} disabled={isSendingRootCause || !rootCauseInput.trim()}>
-                                    <Send className="h-4 w-4 mr-1" />
-                                    {isSendingRootCause ? (t.common?.pleaseWait || "Please wait...") : (detailText("followup", "Send"))}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* Image Viewer Modal */}
+{/* Image Viewer Modal */}
             {
                 isImageViewerOpen && item?.originalImageUrl && (
                     <div
@@ -986,7 +814,7 @@ export default function ErrorDetailPage() {
                                 className="absolute -top-12 right-0 text-white hover:text-gray-300 text-lg font-semibold bg-black/50 px-4 py-2 rounded"
                                 onClick={() => setIsImageViewerOpen(false)}
                             >
-                                {t.detail?.close || '✕ Close'}
+                                {t.detail?.close || '鉁?Close'}
                             </button>
                             <img
                                 src={item.originalImageUrl}
@@ -1004,3 +832,6 @@ export default function ErrorDetailPage() {
         </main >
     );
 }
+
+
+

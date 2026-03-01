@@ -96,25 +96,12 @@ function makeStructured(confirmedCause: string) {
     };
 }
 
-function makeDiagnosis(finalCause: string | null) {
-    return {
-        version: "rule_v2",
-        candidates: [
-            {
-                cause: "Sign handling error",
-                trigger: "sign",
-                evidence: "Expected x = 3, got x = 4",
-                questions_to_ask: ["Which step first became uncertain?"],
-            },
-        ],
-        finalCause,
-    };
-}
-
 describe("error-items root-cause sync", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession as any);
+        vi.mocked(getServerSession).mockResolvedValue(
+            mocks.mockSession as unknown as Awaited<ReturnType<typeof getServerSession>>
+        );
 
         const user = {
             id: "user-1",
@@ -142,9 +129,8 @@ describe("error-items root-cause sync", () => {
         });
     });
 
-    it("POST prefers structured confirmed cause and writes it to diagnosis finalCause", async () => {
+    it("POST keeps root cause only in structuredJson", async () => {
         const structured = makeStructured("From structured");
-        const diagnosis = makeDiagnosis("From diagnosis");
 
         mocks.mockPrismaErrorItem.create.mockResolvedValue({
             id: "item-1",
@@ -158,8 +144,6 @@ describe("error-items root-cause sync", () => {
             rawImageKey: "raw/test.jpg",
             cropImageKey: null,
             structuredJson: structured,
-            diagnosisJson: diagnosis,
-            checkerJson: null,
             masteryLevel: 0,
             tags: [],
         });
@@ -175,7 +159,6 @@ describe("error-items root-cause sync", () => {
                 originalImageUrl: "storage:raw/test.jpg",
                 rawImageKey: "raw/test.jpg",
                 structuredJson: structured,
-                diagnosisJson: diagnosis,
             }),
         });
 
@@ -184,10 +167,11 @@ describe("error-items root-cause sync", () => {
 
         const createArg = mocks.mockPrismaErrorItem.create.mock.calls[0][0];
         expect(createArg.data.structuredJson.rootCause.confirmedCause).toBe("From structured");
-        expect(createArg.data.diagnosisJson.finalCause).toBe("From structured");
+        expect(createArg.data.diagnosisJson).toBeUndefined();
+        expect(createArg.data.checkerJson).toBeUndefined();
     });
 
-    it("PUT with diagnosis-only update syncs diagnosis finalCause back to structured confirmedCause", async () => {
+    it("PUT diagnosis-only payload does not mutate structured root cause", async () => {
         const existing = {
             id: "item-2",
             userId: "user-1",
@@ -196,22 +180,23 @@ describe("error-items root-cause sync", () => {
             answerText: "x = 4",
             analysis: "analysis",
             gradeSemester: "Grade 7, Semester 1",
-            checkerJson: null,
             structuredJson: makeStructured("Old cause"),
-            diagnosisJson: makeDiagnosis("Old cause"),
         };
         mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existing);
         mocks.mockPrismaErrorItem.update.mockResolvedValue({
             ...existing,
-            structuredJson: makeStructured("From diagnosis edit"),
-            diagnosisJson: makeDiagnosis("From diagnosis edit"),
+            structuredJson: makeStructured("Old cause"),
         });
 
         const request = new Request("http://localhost/api/error-items/item-2", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                diagnosisJson: makeDiagnosis("From diagnosis edit"),
+                diagnosisJson: {
+                    version: "rule_v2",
+                    candidates: [],
+                    finalCause: "From diagnosis edit",
+                },
             }),
         });
 
@@ -219,7 +204,8 @@ describe("error-items root-cause sync", () => {
         expect(response.status).toBe(200);
 
         const updateArg = mocks.mockPrismaErrorItem.update.mock.calls[0][0];
-        expect(updateArg.data.structuredJson.rootCause.confirmedCause).toBe("From diagnosis edit");
-        expect(updateArg.data.diagnosisJson.finalCause).toBe("From diagnosis edit");
+        expect(updateArg.data.structuredJson).toBeDefined();
+        expect(updateArg.data.structuredJson.rootCause.confirmedCause).toBe("");
+        expect(updateArg.data.diagnosisJson).toBeUndefined();
     });
 });

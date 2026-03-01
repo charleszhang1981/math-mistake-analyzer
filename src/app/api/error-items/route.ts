@@ -7,59 +7,9 @@ import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
-import {
-    buildCheckerJson,
-    buildDiagnosisJson,
-    normalizeCheckerJson,
-    normalizeDiagnosisJson,
-} from "@/lib/math-checker";
 
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
-
-function syncConfirmedCause(
-    structured: ReturnType<typeof normalizeStructuredQuestionJson>,
-    diagnosis: ReturnType<typeof normalizeDiagnosisJson>,
-    priority: "structured" | "diagnosis" | "auto" = "auto"
-) {
-    const confirmedFromStructured = structured?.rootCause.confirmedCause?.trim() || null;
-    const confirmedFromDiagnosis = diagnosis?.finalCause?.trim() || null;
-    let confirmed: string | null = null;
-
-    if (priority === "structured") {
-        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
-    } else if (priority === "diagnosis") {
-        confirmed = confirmedFromDiagnosis || confirmedFromStructured;
-    } else {
-        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
-    }
-
-    if (!confirmed) {
-        return { structured, diagnosis };
-    }
-
-    const syncedStructured = structured
-        ? {
-            ...structured,
-            rootCause: {
-                ...structured.rootCause,
-                confirmedCause: confirmed,
-            },
-        }
-        : structured;
-
-    const syncedDiagnosis = diagnosis
-        ? {
-            ...diagnosis,
-            finalCause: confirmed,
-        }
-        : diagnosis;
-
-    return {
-        structured: syncedStructured,
-        diagnosis: syncedDiagnosis,
-    };
-}
 
 async function ensureMathNotebook(userId: string) {
     const existingMath = await prisma.subject.findFirst({
@@ -107,8 +57,6 @@ export async function POST(req: Request) {
             rawImageKey,
             cropImageKey,
             structuredJson,
-            checkerJson,
-            diagnosisJson,
             gradeSemester,
             paperLevel,
         } = body;
@@ -239,13 +187,6 @@ export async function POST(req: Request) {
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson)
             ?? buildStructuredQuestionJson({ questionText, answerText, analysis });
-        const normalizedCheckerJson = normalizeCheckerJson(checkerJson)
-            ?? buildCheckerJson({ questionText, answerText });
-        const normalizedDiagnosisJson = normalizeDiagnosisJson(diagnosisJson)
-            ?? buildDiagnosisJson({ questionText, answerText, analysis }, normalizedCheckerJson);
-        const synced = syncConfirmedCause(normalizedStructuredJson, normalizedDiagnosisJson, "structured");
-        const finalStructuredJson = synced.structured;
-        const finalDiagnosisJson = synced.diagnosis;
 
         // 创建错题记录
         try {
@@ -260,9 +201,7 @@ export async function POST(req: Request) {
                     answerText,
                     analysis,
                     knowledgePoints: JSON.stringify(tagNames),
-                    structuredJson: finalStructuredJson ?? undefined,
-                    checkerJson: normalizedCheckerJson ?? undefined,
-                    diagnosisJson: finalDiagnosisJson ?? undefined,
+                    structuredJson: normalizedStructuredJson ?? undefined,
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     masteryLevel: 0,

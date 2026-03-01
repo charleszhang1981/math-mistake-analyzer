@@ -2,63 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
-import {
-    buildCheckerJson,
-    buildDiagnosisJson,
-    normalizeCheckerJson,
-    normalizeDiagnosisJson,
-} from "@/lib/math-checker";
 
 const logger = createLogger('api:error-items:id');
-
-function syncConfirmedCause(
-    structured: ReturnType<typeof normalizeStructuredQuestionJson>,
-    diagnosis: ReturnType<typeof normalizeDiagnosisJson>,
-    priority: "structured" | "diagnosis" | "auto" = "auto"
-) {
-    const confirmedFromStructured = structured?.rootCause.confirmedCause?.trim() || null;
-    const confirmedFromDiagnosis = diagnosis?.finalCause?.trim() || null;
-    let confirmed: string | null = null;
-
-    if (priority === "structured") {
-        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
-    } else if (priority === "diagnosis") {
-        confirmed = confirmedFromDiagnosis || confirmedFromStructured;
-    } else {
-        confirmed = confirmedFromStructured || confirmedFromDiagnosis;
-    }
-
-    if (!confirmed) {
-        return { structured, diagnosis };
-    }
-
-    const syncedStructured = structured
-        ? {
-            ...structured,
-            rootCause: {
-                ...structured.rootCause,
-                confirmedCause: confirmed,
-            },
-        }
-        : structured;
-
-    const syncedDiagnosis = diagnosis
-        ? {
-            ...diagnosis,
-            finalCause: confirmed,
-        }
-        : diagnosis;
-
-    return {
-        structured: syncedStructured,
-        diagnosis: syncedDiagnosis,
-    };
-}
 
 export async function GET(
     req: Request,
@@ -157,8 +108,6 @@ export async function PUT(
             rawImageKey,
             cropImageKey,
             structuredJson,
-            checkerJson,
-            diagnosisJson,
         } = body;
 
         const errorItem = await prisma.errorItem.findUnique({
@@ -175,7 +124,7 @@ export async function PUT(
         }
 
         // Build update payload
-        const updateData: any = {};
+        const updateData: Prisma.ErrorItemUpdateInput = {};
         if (gradeSemester !== undefined) updateData.gradeSemester = gradeSemester;
         if (paperLevel !== undefined) updateData.paperLevel = paperLevel;
         if (questionText !== undefined) updateData.questionText = questionText;
@@ -199,87 +148,7 @@ export async function PUT(
         } else if (structuredJson === null) {
             updateData.structuredJson = null;
         }
-        const effectiveQuestionText = questionText !== undefined ? questionText : errorItem.questionText;
-        const effectiveAnswerText = answerText !== undefined ? answerText : errorItem.answerText;
-        const effectiveAnalysis = analysis !== undefined ? analysis : errorItem.analysis;
-        const textChanged = questionText !== undefined || answerText !== undefined || analysis !== undefined;
-
-        const normalizedCheckerJson = normalizeCheckerJson(checkerJson);
-        if (normalizedCheckerJson !== null) {
-            updateData.checkerJson = normalizedCheckerJson;
-        } else if (checkerJson === null) {
-            updateData.checkerJson = null;
-        } else if (checkerJson === undefined && textChanged) {
-            updateData.checkerJson = buildCheckerJson({
-                questionText: effectiveQuestionText,
-                answerText: effectiveAnswerText,
-            });
-        }
-
-        const normalizedDiagnosisJson = normalizeDiagnosisJson(diagnosisJson);
-        if (normalizedDiagnosisJson !== null) {
-            updateData.diagnosisJson = normalizedDiagnosisJson;
-        } else if (diagnosisJson === null) {
-            updateData.diagnosisJson = null;
-        } else if (diagnosisJson === undefined && textChanged) {
-            const checkerForDiagnosis =
-                normalizeCheckerJson(updateData.checkerJson)
-                ?? normalizeCheckerJson(errorItem.checkerJson)
-                ?? buildCheckerJson({
-                    questionText: effectiveQuestionText,
-                    answerText: effectiveAnswerText,
-                });
-
-            updateData.diagnosisJson = buildDiagnosisJson(
-                {
-                    questionText: effectiveQuestionText,
-                    answerText: effectiveAnswerText,
-                    analysis: effectiveAnalysis,
-                },
-                checkerForDiagnosis
-            );
-        }
-
         // Handle knowledgePoints (tags)
-
-        const structuredForSync = normalizeStructuredQuestionJson(
-            updateData.structuredJson !== undefined ? updateData.structuredJson : errorItem.structuredJson
-        );
-        let diagnosisForSync = normalizeDiagnosisJson(
-            updateData.diagnosisJson !== undefined ? updateData.diagnosisJson : errorItem.diagnosisJson
-        );
-        if (!diagnosisForSync && structuredForSync) {
-            const checkerForDiagnosis =
-                normalizeCheckerJson(updateData.checkerJson)
-                ?? normalizeCheckerJson(errorItem.checkerJson)
-                ?? buildCheckerJson({
-                    questionText: effectiveQuestionText,
-                    answerText: effectiveAnswerText,
-                });
-
-            diagnosisForSync = buildDiagnosisJson(
-                {
-                    questionText: effectiveQuestionText,
-                    answerText: effectiveAnswerText,
-                    analysis: effectiveAnalysis,
-                    structuredJson: structuredForSync,
-                },
-                checkerForDiagnosis
-            );
-        }
-
-        const priority = structuredJson !== undefined
-            ? "structured"
-            : diagnosisJson !== undefined
-                ? "diagnosis"
-                : "auto";
-        const synced = syncConfirmedCause(structuredForSync, diagnosisForSync, priority);
-        if (synced.structured !== null) {
-            updateData.structuredJson = synced.structured;
-        }
-        if (synced.diagnosis !== null) {
-            updateData.diagnosisJson = synced.diagnosis;
-        }
         if (knowledgePoints !== undefined) {
             const tagNames: string[] = Array.isArray(knowledgePoints)
                 ? knowledgePoints

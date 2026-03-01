@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Save, RefreshCw, Loader2, ClipboardPaste } from "lucide-react";
+import { Save, RefreshCw, Loader2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { frontendLogger } from "@/lib/frontend-logger";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
@@ -23,15 +23,12 @@ import {
     normalizeStructuredQuestionJson,
     type StructuredQuestionJson,
 } from "@/lib/ai/structured-json";
-import { normalizeDiagnosisJson } from "@/lib/math-checker";
 
 interface ParsedQuestionWithSubject extends ParsedQuestion {
     subjectId?: string;
     gradeSemester?: string;
     paperLevel?: string;
     structuredJson?: StructuredQuestionJson | null;
-    checkerJson?: unknown;
-    diagnosisJson?: unknown;
 }
 
 interface CorrectionEditorProps {
@@ -74,25 +71,6 @@ function buildSolutionMarkdown(stepsText: string): string {
     const lines = textToLines(stepsText);
     if (lines.length === 0) return "";
     return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
-}
-
-function buildSystemHintText(diagnosisJson: unknown, chatSummary: string): string {
-    const diagnosis = normalizeDiagnosisJson(diagnosisJson);
-    const candidate = diagnosis?.candidates?.[0];
-    if (candidate) {
-        const questionLines = candidate.questions_to_ask
-            .map((question, index) => `${index + 1}. ${question}`)
-            .join("\n");
-        return [
-            `Cause: ${candidate.cause}`,
-            `Evidence: ${candidate.evidence}`,
-            questionLines ? `Reflection Questions:\n${questionLines}` : "",
-        ]
-            .filter((line) => line.trim().length > 0)
-            .join("\n\n");
-    }
-
-    return chatSummary.trim();
 }
 
 function normalizeMathLine(line: string): string {
@@ -154,9 +132,6 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const [mistakeWhyWrong, setMistakeWhyWrong] = useState(initialStructured?.mistake.whyWrong || "");
     const [mistakeFixSuggestion, setMistakeFixSuggestion] = useState(initialStructured?.mistake.fixSuggestion || "");
     const [confirmedRootCause, setConfirmedRootCause] = useState(initialStructured?.rootCause.confirmedCause || "");
-    const [chatSummaryDraft] = useState(initialStructured?.rootCause.chatSummary || "");
-
-    const [showSystemHint, setShowSystemHint] = useState(false);
 
     useEffect(() => {
         apiClient.get<Notebook[]>("/api/notebooks")
@@ -196,7 +171,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
             rootCause: {
                 studentHypothesis: previousStructured?.rootCause.studentHypothesis || "",
                 confirmedCause: confirmedRootCause.trim(),
-                chatSummary: chatSummaryDraft.trim() || previousStructured?.rootCause.chatSummary || "",
+                chatSummary: previousStructured?.rootCause.chatSummary || "",
             },
         };
     };
@@ -259,7 +234,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     rootCause: {
                         ...nextStructured.rootCause,
                         confirmedCause: confirmedRootCause.trim(),
-                        chatSummary: chatSummaryDraft.trim(),
+                        chatSummary: normalizeStructuredQuestionJson(data.structuredJson)?.rootCause.chatSummary || "",
                     },
                 }
                 : data.structuredJson || null;
@@ -274,9 +249,15 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
 
             applyStructuredToEditor(mergedStructured);
             alert(t.editor.reanswerSuccess || "Answer and analysis updated!");
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Reanswer failed:", error);
-            const msg = error.data?.message || "";
+            const msg =
+                typeof error === "object"
+                && error !== null
+                && "data" in error
+                && typeof (error as { data?: { message?: unknown } }).data?.message === "string"
+                    ? (error as { data?: { message?: string } }).data?.message || ""
+                    : "";
             const reanswerErrors = t.errors?.reanswer || {};
             let errorText = reanswerErrors.default || "Reanswer failed";
 
@@ -293,11 +274,6 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
             setIsReanswering(false);
         }
     };
-
-    const systemHintText = useMemo(
-        () => buildSystemHintText(data.diagnosisJson, chatSummaryDraft),
-        [data.diagnosisJson, chatSummaryDraft]
-    );
 
     return (
         <div className="space-y-6">
@@ -609,43 +585,6 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                         className="min-h-[90px]"
                                         placeholder={t.editor.finalRootCausePlaceholder || "Summarize the confirmed root cause"}
                                     />
-                                </div>
-
-                                <div className="space-y-2 rounded-md border p-3">
-                                    <p className="text-sm text-muted-foreground">
-                                        {t.editor.systemHintTitle || "System Hint (Think by yourself first, then click below)"}
-                                    </p>
-
-                                    {!showSystemHint ? (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="w-full"
-                                            onClick={() => setShowSystemHint(true)}
-                                        >
-                                            {t.editor.showSystemHint || "Click to show system hint"}
-                                        </Button>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            <Textarea
-                                                value={systemHintText || (t.editor.noSystemHint || "No system hint available")}
-                                                readOnly
-                                                className="min-h-[90px]"
-                                            />
-                                            <div className="flex justify-end">
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => setConfirmedRootCause(systemHintText)}
-                                                    disabled={!systemHintText.trim()}
-                                                >
-                                                    <ClipboardPaste className="mr-2 h-4 w-4" />
-                                                    {t.editor.copyHintToTop || "Copy to upper input"}
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </CardContent>
                         </Card>

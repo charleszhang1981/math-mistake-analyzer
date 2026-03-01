@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
             user: mockPrismaUser,
             errorItem: mockPrismaErrorItem,
             reviewSchedule: mockPrismaReviewSchedule,
-            $transaction: vi.fn(async (fn: any) => fn(tx)),
+            $transaction: vi.fn(async (fn: (payload: typeof tx) => unknown) => fn(tx)),
         },
         mockSession: {
             user: {
@@ -65,7 +65,9 @@ describe("/api/review", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.mockPrismaUser.findUnique.mockResolvedValue(mockUser);
-        vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession as any);
+        vi.mocked(getServerSession).mockResolvedValue(
+            mocks.mockSession as unknown as Awaited<ReturnType<typeof getServerSession>>
+        );
     });
 
     it("GET /api/review/list should return due items by default", async () => {
@@ -117,7 +119,7 @@ describe("/api/review", () => {
         expect(response.status).toBe(200);
         expect(data.total).toBe(1);
         expect(data.items[0].errorItemId).toBe("item-due");
-        expect(data.items[0].cause).toBe("Sign error");
+        expect(data.items[0].cause).toBe("Uncategorized");
     });
 
     it("POST /api/review/record should schedule +3d on correct answer", async () => {
