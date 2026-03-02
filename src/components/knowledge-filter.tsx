@@ -8,6 +8,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient } from "@/lib/api-client";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 
@@ -46,6 +47,7 @@ const GRADE_TO_SEMESTERS: Record<number, string[]> = {
     11: ["高二上", "高二下", "高二"],
     12: ["高三上", "高三下", "高三"],
 };
+const ALL_GRADE_SEMESTERS = [...new Set(Object.values(GRADE_TO_SEMESTERS).flat())];
 
 function getLeafTags(node: TagTreeNode): string[] {
     if (!node.children || node.children.length === 0) {
@@ -63,6 +65,7 @@ export function KnowledgeFilter({
     onFilterChange,
     className,
 }: KnowledgeFilterProps) {
+    const { t } = useLanguage();
     const [gradeSemester, setGradeSemester] = useState<string>(initialGrade || "");
     const [chapter, setChapter] = useState<string>("");
     const [tag, setTag] = useState<string>(initialTag || "");
@@ -174,11 +177,12 @@ export function KnowledgeFilter({
     const tags = showChapter ? tagsByChapter : tagsByGrade;
 
     const filteredGrades = useMemo(() => {
-        const gradeInTree = new Set(tagTree.map((node) => node.name));
-        const matched = availableGrades.filter((g) => gradeInTree.has(g));
-        if (matched.length > 0) return matched;
-        return tagTree.map((node) => node.name);
-    }, [availableGrades, tagTree]);
+        const base = availableGrades.length > 0 ? availableGrades : ALL_GRADE_SEMESTERS;
+        if (gradeSemester && !base.includes(gradeSemester)) {
+            return [gradeSemester, ...base];
+        }
+        return base;
+    }, [availableGrades, gradeSemester]);
 
     const handleGradeChange = (value: string) => {
         const nextGrade = value === "all" ? "" : value;
@@ -217,10 +221,10 @@ export function KnowledgeFilter({
         <div className={`flex flex-wrap gap-2 ${className || ""}`}>
             <Select value={gradeSemester || "all"} onValueChange={handleGradeChange} disabled={loading}>
                 <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Grade / Semester" />
+                    <SelectValue placeholder={t.filter.grade || "年级/学期"} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="all">All Grades</SelectItem>
+                    <SelectItem value="all">{t.filter.all || "全部"}</SelectItem>
                     {filteredGrades.map((gs) => (
                         <SelectItem key={gs} value={gs}>
                             {gs}
@@ -236,10 +240,10 @@ export function KnowledgeFilter({
                     disabled={!gradeSemester || loading}
                 >
                     <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Chapter" />
+                        <SelectValue placeholder="章节" />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">All Chapters</SelectItem>
+                        <SelectItem value="all">全部章节</SelectItem>
                         {chapters.map((c) => (
                             <SelectItem key={c.id} value={c.name}>
                                 {c.name}
@@ -255,13 +259,13 @@ export function KnowledgeFilter({
                 disabled={loading || tags.length === 0 || (showChapter && !chapter)}
             >
                 <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Knowledge Point" />
+                    <SelectValue placeholder="知识点" />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="all">All Tags</SelectItem>
-                    {tags.map((t) => (
-                        <SelectItem key={t} value={t}>
-                            {t}
+                    <SelectItem value="all">{t.filter.all || "全部"}</SelectItem>
+                    {tags.map((tagName) => (
+                        <SelectItem key={tagName} value={tagName}>
+                            {tagName}
                         </SelectItem>
                     ))}
                 </SelectContent>

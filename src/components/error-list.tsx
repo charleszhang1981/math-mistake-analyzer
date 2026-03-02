@@ -236,8 +236,8 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         if (targetCount === 0) return;
 
         const confirmMessage = useSelected
-            ? (t.notebook?.confirmBatchDelete || "Delete {count} selected items?").replace("{count}", String(targetCount))
-            : "Delete all {count} items in current search results?".replace("{count}", String(targetCount));
+            ? (t.notebook?.confirmBatchDelete || "确定删除 {count} 道错题？").replace("{count}", String(targetCount))
+            : "确定删除当前检索结果中的全部 {count} 道错题？".replace("{count}", String(targetCount));
 
         if (!confirm(confirmMessage)) return;
 
@@ -260,7 +260,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             const response = await apiClient.post<{ deleted: number }>("/api/error-items/batch-delete", payload);
             const deleted = response?.deleted ?? targetCount;
 
-            alert("Deleted {count} items.".replace("{count}", String(deleted)));
+            alert("已删除 {count} 道错题。".replace("{count}", String(deleted)));
 
             setSelectedIds(new Set());
             setActionScope("results");
@@ -333,7 +333,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         }
 
         if (appliedFilters.tag) {
-            chips.push({ key: "tag", label: `Tag: ${appliedFilters.tag}` });
+            chips.push({ key: "tag", label: `知识点: ${appliedFilters.tag}` });
         }
 
         if (appliedFilters.paperLevel !== "all") {
@@ -367,8 +367,8 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 }}
                             />
                         </div>
-                        <Button onClick={applySearch}>Search</Button>
-                        <Button variant="outline" onClick={resetSearch}>Reset</Button>
+                        <Button onClick={applySearch}>搜索</Button>
+                        <Button variant="outline" onClick={resetSearch}>重置</Button>
                     </div>
 
                     <div className="flex flex-wrap gap-3 items-center">
@@ -446,7 +446,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 </Badge>
                             ))}
                             <Button variant="ghost" size="sm" onClick={resetSearch}>
-                                Clear
+                                清空条件
                             </Button>
                         </div>
                     )}
@@ -464,11 +464,11 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         <>
                             <Button variant="outline" size="sm" onClick={selectCurrentPage} disabled={items.length === 0}>
                                 <CheckSquare className="mr-2 h-4 w-4" />
-                                Select Page
+                                本页全选
                             </Button>
                             <Button variant="outline" size="sm" onClick={clearSelection} disabled={selectedCount === 0}>
                                 <X className="mr-2 h-4 w-4" />
-                                Clear Selection
+                                清空选择
                             </Button>
                         </>
                     )}
@@ -480,14 +480,14 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 variant={actionScope === "results" ? "secondary" : "ghost"}
                                 onClick={() => setActionScope("results")}
                             >
-                                All Results ({total})
+                                全部结果 ({total})
                             </Button>
                             <Button
                                 size="sm"
                                 variant={actionScope === "selected" ? "secondary" : "ghost"}
                                 onClick={() => setActionScope("selected")}
                             >
-                                Selected ({selectedCount})
+                                已选择 ({selectedCount})
                             </Button>
                         </div>
                     )}
@@ -520,7 +520,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         <Trash2 className="mr-2 h-4 w-4" />
                         {isUsingSelectedScope
                             ? (t.notebook?.deleteSelected || "Delete Selected")
-                            : "Delete Results"}
+                            : "删除检索结果"}
                     </Button>
                 </div>
             </div>
@@ -628,7 +628,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             {!loading && items.length === 0 && (
                 <Card>
                     <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                        No items match current search conditions.
+                        没有符合当前检索条件的题目。
                     </CardContent>
                 </Card>
             )}
