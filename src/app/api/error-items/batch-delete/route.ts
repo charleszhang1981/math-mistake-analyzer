@@ -1,36 +1,39 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
 import { unauthorized, badRequest, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { buildErrorItemWhereClause } from "@/lib/error-item-filters";
 
-const logger = createLogger('api:error-items:batch-delete');
+const logger = createLogger("api:error-items:batch-delete");
 
-/**
- * POST /api/error-items/batch-delete
- * 批量删除错题
- * Body: { ids: string[] }
- */
+interface BatchDeleteFilters {
+    subjectId?: string;
+    query?: string;
+    mastery?: string;
+    timeRange?: string;
+    tag?: string;
+    gradeSemester?: string;
+    paperLevel?: string;
+}
+
+interface BatchDeleteBody {
+    ids?: string[];
+    filters?: BatchDeleteFilters;
+}
+
 export async function POST(req: Request) {
-    logger.info('POST /api/error-items/batch-delete called');
+    logger.info("POST /api/error-items/batch-delete called");
 
     const session = await getServerSession(authOptions);
 
     try {
-        const body = await req.json();
-        const { ids } = body;
+        const body = (await req.json()) as BatchDeleteBody;
+        const ids = Array.isArray(body.ids)
+            ? body.ids.map((id) => id.trim()).filter((id) => id.length > 0)
+            : [];
 
-        // 验证参数
-        if (!Array.isArray(ids) || ids.length === 0) {
-            return badRequest("ids must be a non-empty array");
-        }
-
-        if (ids.length > 100) {
-            return badRequest("Cannot delete more than 100 items at once");
-        }
-
-        // 验证用户身份
         let user;
         if (session?.user?.email) {
             user = await prisma.user.findUnique({
@@ -39,7 +42,7 @@ export async function POST(req: Request) {
         }
 
         if (!user) {
-            logger.debug('No session or user found, attempting fallback to first user');
+            logger.debug("No session or user found, attempting fallback to first user");
             user = await prisma.user.findFirst();
         }
 
@@ -47,49 +50,63 @@ export async function POST(req: Request) {
             return unauthorized("No user found in DB");
         }
 
-        logger.debug({ userId: user.id, idsCount: ids.length }, 'Batch delete request');
-
-        // 查询所有要删除的错题，验证所有权
-        const itemsToDelete = await prisma.errorItem.findMany({
-            where: {
-                id: { in: ids },
-            },
-            select: {
-                id: true,
-                userId: true,
-            },
-        });
-
-        // 过滤出属于当前用户的错题
-        const ownedIds = itemsToDelete
-            .filter(item => item.userId === user.id)
-            .map(item => item.id);
-
-        const unauthorizedIds = ids.filter(id => !ownedIds.includes(id));
-
-        if (unauthorizedIds.length > 0) {
-            logger.warn({ unauthorizedIds }, 'Some items do not belong to user or do not exist');
+        if (ids.length === 0 && !body.filters) {
+            return badRequest("Provide either ids or filters for batch delete");
         }
 
-        // 执行删除
-        let deletedCount = 0;
-        if (ownedIds.length > 0) {
-            const result = await prisma.errorItem.deleteMany({
+        if (ids.length > 0) {
+            const itemsToDelete = await prisma.errorItem.findMany({
                 where: {
-                    id: { in: ownedIds },
+                    id: { in: ids },
+                },
+                select: {
+                    id: true,
+                    userId: true,
                 },
             });
-            deletedCount = result.count;
+
+            const ownedIds = itemsToDelete
+                .filter((item) => item.userId === user.id)
+                .map((item) => item.id);
+
+            const failed = ids.filter((id) => !ownedIds.includes(id));
+
+            const result = ownedIds.length > 0
+                ? await prisma.errorItem.deleteMany({ where: { id: { in: ownedIds } } })
+                : { count: 0 };
+
+            logger.info({ requested: ids.length, deleted: result.count, failed: failed.length }, "Batch delete by ids completed");
+            return NextResponse.json({
+                deleted: result.count,
+                failed,
+                scope: "selected",
+            });
         }
 
-        logger.info({ deletedCount, requestedCount: ids.length, failedCount: unauthorizedIds.length }, 'Batch delete completed');
+        const filters = body.filters!;
+        const whereClause = buildErrorItemWhereClause({
+            userId: user.id,
+            subjectId: filters.subjectId,
+            query: filters.query,
+            mastery: filters.mastery,
+            timeRange: filters.timeRange,
+            tag: filters.tag,
+            gradeSemester: filters.gradeSemester,
+            paperLevel: filters.paperLevel,
+        });
 
+        const result = await prisma.errorItem.deleteMany({
+            where: whereClause,
+        });
+
+        logger.info({ deleted: result.count, userId: user.id }, "Batch delete by filters completed");
         return NextResponse.json({
-            deleted: deletedCount,
-            failed: unauthorizedIds,
+            deleted: result.count,
+            failed: [],
+            scope: "results",
         });
     } catch (error) {
-        logger.error({ error }, 'Error in batch delete');
+        logger.error({ error }, "Error in batch delete");
         return internalError("Failed to delete items");
     }
 }

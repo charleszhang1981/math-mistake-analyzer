@@ -146,7 +146,7 @@ export async function PUT(
                 updateData.structuredJson = fallbackStructuredJson;
             }
         } else if (structuredJson === null) {
-            updateData.structuredJson = null;
+            updateData.structuredJson = Prisma.JsonNull;
         }
         // Handle knowledgePoints (tags)
         if (knowledgePoints !== undefined) {
