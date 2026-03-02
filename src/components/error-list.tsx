@@ -213,6 +213,12 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             } else {
                 next.add(id);
             }
+
+            if (next.size > 0) {
+                setActionScope("selected");
+            } else {
+                setActionScope("results");
+            }
             return next;
         });
     };
@@ -474,20 +480,22 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                     )}
 
                     {selectedCount > 0 && (
-                        <div className="flex gap-1 rounded-md border p-1">
+                        <div className="inline-flex">
                             <Button
                                 size="sm"
-                                variant={actionScope === "results" ? "secondary" : "ghost"}
+                                className={actionScope === "results" ? "rounded-r-none bg-secondary hover:bg-secondary/90" : "rounded-r-none"}
+                                variant="outline"
                                 onClick={() => setActionScope("results")}
                             >
-                                全部结果 ({total})
+                                全部({total})
                             </Button>
                             <Button
                                 size="sm"
-                                variant={actionScope === "selected" ? "secondary" : "ghost"}
+                                className={actionScope === "selected" ? "rounded-l-none -ml-px bg-secondary hover:bg-secondary/90" : "rounded-l-none -ml-px"}
+                                variant="outline"
                                 onClick={() => setActionScope("selected")}
                             >
-                                已选择 ({selectedCount})
+                                已选({selectedCount})
                             </Button>
                         </div>
                     )}

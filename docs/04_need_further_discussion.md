@@ -90,3 +90,17 @@ This document records items intentionally excluded from MVP scope but requiring 
 **Post-MVP direction**
 - Add deployment runbook, env validation checklist, and smoke tests.
 - Add observability for image upload/signing failures and AI timeout/quota behavior.
+
+## 8) Full i18n Completion (MVP keeps Chinese-only UI)
+**Current MVP decision**
+- MVP UI is Chinese-only by default, including buttons, filters, and prompts.
+- Some newer notebook/filter text is intentionally written directly in Chinese instead of adding full bilingual keys.
+
+**Why deferred**
+- Full i18n key coverage and consistency cleanup costs time but does not block MVP core flow.
+- Product priority is release speed and interaction quality, not bilingual polish.
+
+**Post-MVP direction**
+- Normalize all newly added Chinese hard-coded strings into translation keys.
+- Complete and verify both `zh` and `en` namespaces for notebook/search/filter/batch actions.
+- Add a lightweight i18n regression checklist to prevent missing keys in future UI changes.

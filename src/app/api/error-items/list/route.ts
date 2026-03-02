@@ -6,12 +6,14 @@ import { unauthorized, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE } from "@/lib/constants/pagination";
 import { buildErrorItemWhereClause } from "@/lib/error-item-filters";
+import { createSignedObjectUrl } from "@/lib/supabase-storage";
 
 const logger = createLogger("api:error-items:list");
 
 export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
     const { searchParams } = new URL(req.url);
+    const includeSignedImage = searchParams.get("includeSignedImage") === "1";
 
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const pageSize = Math.min(
@@ -68,8 +70,42 @@ export async function GET(req: Request) {
             take: pageSize,
         });
 
+        const items = includeSignedImage
+            ? await Promise.all(
+                errorItems.map(async (item) => {
+                    const imageKeyForDisplay =
+                        item.cropImageKey ||
+                        item.rawImageKey ||
+                        (typeof item.originalImageUrl === "string" && item.originalImageUrl.startsWith("storage:")
+                            ? item.originalImageUrl.slice("storage:".length)
+                            : null);
+
+                    if (!imageKeyForDisplay) {
+                        return item;
+                    }
+
+                    try {
+                        const signedUrl = await createSignedObjectUrl({
+                            key: imageKeyForDisplay,
+                            expiresIn: 1800,
+                        });
+                        return {
+                            ...item,
+                            originalImageUrl: signedUrl,
+                        };
+                    } catch (signError) {
+                        logger.warn(
+                            { errorItemId: item.id, signError, imageKeyForDisplay },
+                            "Failed to sign image URL in list route, fallback to stored originalImageUrl"
+                        );
+                        return item;
+                    }
+                })
+            )
+            : errorItems;
+
         return NextResponse.json({
-            items: errorItems,
+            items,
             total,
             page,
             pageSize,
