@@ -12,6 +12,10 @@ import { BookOpen } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { Notebook } from "@/types/api";
 import { useLanguage } from "@/contexts/LanguageContext";
+import {
+    getDefaultNotebookId as getDefaultNotebookIdFromPrefs,
+    setDefaultNotebookId as setDefaultNotebookIdToPrefs,
+} from "@/lib/notebook-preferences";
 
 interface NotebookSelectorProps {
     value?: string;
@@ -19,15 +23,13 @@ interface NotebookSelectorProps {
     className?: string;
 }
 
-const DEFAULT_NOTEBOOK_ID_KEY = "default-notebook-id";
-
 export function NotebookSelector({ value, onChange, className }: NotebookSelectorProps) {
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
     const [defaultNotebookId, setDefaultNotebookId] = useState<string | null>(null);
     const { t, language } = useLanguage();
 
     const persistDefaultNotebookId = (id: string) => {
-        localStorage.setItem(DEFAULT_NOTEBOOK_ID_KEY, id);
+        setDefaultNotebookIdToPrefs(id);
         setDefaultNotebookId(id);
     };
 
@@ -42,7 +44,7 @@ export function NotebookSelector({ value, onChange, className }: NotebookSelecto
                     return;
                 }
 
-                const savedDefault = localStorage.getItem(DEFAULT_NOTEBOOK_ID_KEY);
+                const savedDefault = getDefaultNotebookIdFromPrefs();
                 const savedExists = !!savedDefault && data.some((n) => n.id === savedDefault);
                 setDefaultNotebookId(savedExists ? savedDefault! : data[0].id);
             } catch (error) {

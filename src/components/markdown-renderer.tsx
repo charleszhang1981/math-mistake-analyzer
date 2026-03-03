@@ -34,7 +34,15 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
         // AI sometimes emits escaped delimiters; normalize so KaTeX can parse.
         .replace(/\\\$/g, "$")
         // Handle over-escaped math commands like \\frac -> \frac.
-        .replace(new RegExp(String.raw`\\\\(?=(${MATH_COMMANDS})\b)`, "g"), "\\");
+        .replace(new RegExp(String.raw`\\\\(?=(${MATH_COMMANDS})\b)`, "g"), "\\")
+        // AI often emits \left/\right with mismatched pairs; drop wrappers for stable rendering.
+        .replace(/\\left\b\s*/g, "")
+        .replace(/\\right\b\s*/g, "")
+        // Inline math with line breaks can trigger KaTeX parse errors; collapse inside $...$.
+        .replace(/\$([\s\S]*?)\$/g, (_match, body: string) => {
+            const compact = body.replace(/\r?\n+/g, " ").replace(/\s{2,}/g, " ").trim();
+            return `$${compact}$`;
+        });
 
     const mathWrappedContent = normalizedMathContent
         .split(/\r?\n/)

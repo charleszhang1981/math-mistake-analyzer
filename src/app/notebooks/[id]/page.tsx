@@ -55,7 +55,7 @@ export default function NotebookDetailPage() {
         <main className="min-h-screen p-4 md:p-8 bg-background">
             <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
                 <div className="flex items-start gap-4">
-                    <BackButton fallbackUrl="/notebooks" className="shrink-0" />
+                    <BackButton fallbackUrl="/" className="shrink-0" />
                     <div className="flex-1 min-w-0 space-y-1">
                         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">{notebook.name}</h1>
                         <p className="text-muted-foreground text-sm sm:text-base">

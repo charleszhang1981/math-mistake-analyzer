@@ -8,6 +8,7 @@ import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
+import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
 
 const logger = createLogger('api:error-items:id');
 
@@ -16,6 +17,8 @@ export async function GET(
     { params }: { params: Promise<{ id: string }> }
 ) {
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const includeSignedImage = searchParams.get("includeSignedImage") === "1";
     const session = await getServerSession(authOptions);
 
     try {
@@ -54,17 +57,33 @@ export async function GET(
             return forbidden("Not authorized to access this item");
         }
 
-        const responseItem = { ...errorItem } as typeof errorItem;
-        const imageKeyForDisplay = errorItem.cropImageKey || errorItem.rawImageKey;
-        if (imageKeyForDisplay) {
+        const responseItem = {
+            ...errorItem,
+            displayImageKey: null as string | null,
+        };
+        const imageKeyForDisplay =
+            errorItem.cropImageKey ||
+            errorItem.rawImageKey ||
+            extractStorageKeyFromImageRef(errorItem.originalImageUrl);
+        responseItem.displayImageKey = imageKeyForDisplay;
+
+        if (imageKeyForDisplay && includeSignedImage) {
             try {
                 responseItem.originalImageUrl = await createSignedObjectUrl({
                     key: imageKeyForDisplay,
                     expiresIn: 1800,
+                    timeoutMs: 4000,
+                    maxRetries: 1,
                 });
             } catch (signError) {
                 logger.warn({ id, signError, imageKeyForDisplay }, 'Failed to sign image URL, fallback to stored originalImageUrl');
+                if (extractStorageKeyFromImageRef(responseItem.originalImageUrl)) {
+                    responseItem.originalImageUrl = "";
+                }
             }
+        } else if (extractStorageKeyFromImageRef(responseItem.originalImageUrl)) {
+            // Fast path: avoid returning unresolved storage refs to the browser.
+            responseItem.originalImageUrl = "";
         }
 
         return NextResponse.json(responseItem);

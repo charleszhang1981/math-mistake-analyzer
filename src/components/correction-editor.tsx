@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiClient } from "@/lib/api-client";
 import { UserProfile, Notebook } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import type { ReanswerResult } from "@/lib/ai/types";
 import {
     buildStructuredQuestionJson,
     normalizeStructuredQuestionJson,
@@ -73,6 +74,14 @@ function buildSolutionMarkdown(stepsText: string): string {
     return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
 }
 
+function normalizeStepDisplayLine(line: string): string {
+    return line
+        .trim()
+        .replace(/^\d+[\.\)]\s*/, "")
+        .replace(/^(?:步骤|step)\s*\d+\s*[:：]\s*/i, "")
+        .trim();
+}
+
 function normalizeMathLine(line: string): string {
     const trimmed = line.trim();
     if (!trimmed) return "";
@@ -81,20 +90,26 @@ function normalizeMathLine(line: string): string {
         return line;
     }
 
-    const hasLatexCommand = /\\[a-zA-Z]+/.test(trimmed);
-    const hasMathOperator = /[=+\-*/^]/.test(trimmed);
+    const withoutLeftRight = line.replace(/\\left/g, "").replace(/\\right/g, "");
+    const hasLatexCommand = /\\[a-zA-Z]+/.test(withoutLeftRight);
+    const hasMathOperator = /[=+\-*/^]/.test(withoutLeftRight);
     if (!hasLatexCommand && !hasMathOperator) {
         return line;
     }
 
-    const naturalText = trimmed
+    const naturalText = withoutLeftRight
         .replace(/\\[a-zA-Z]+/g, "")
-        .replace(/[{}\[\]()0-9+\-*/^_=.,:，。；：！？\s]/g, "");
+        .replace(/[{}\[\]()0-9+\-*/^_=.,:\s]/g, "");
+
+    // Mixed natural language + LaTeX: wrap only LaTeX fragments.
     if (/[A-Za-z\u4e00-\u9fff]/.test(naturalText)) {
-        return line;
+        return withoutLeftRight.replace(
+            /\\(?:frac\{[^{}]*\}\{[^{}]*\}|sqrt\{[^{}]*\}|times|div|cdot|leq|geq|neq|pm|mp|sin|cos|tan|log|ln|pi|theta|alpha|beta|gamma|delta|sum|prod|int|infty|approx|sim|text\{[^{}]*\}|boxed\{[^{}]*\})/g,
+            (match) => `$${match}$`
+        );
     }
 
-    return `$${trimmed}$`;
+    return `$${withoutLeftRight.trim()}$`;
 }
 
 export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, initialSubjectId, aiTimeout }: CorrectionEditorProps) {
@@ -216,7 +231,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
 
             frontendLogger.info("[Reanswer]", "Sending request", { timeout: aiTimeout });
 
-            const result = await apiClient.post<{ answerText: string; analysis: string; knowledgePoints: string[] }>(
+            const result = await apiClient.post<ReanswerResult>(
                 "/api/reanswer",
                 requestBody,
                 { timeout: aiTimeout || 180000 }
@@ -228,7 +243,12 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 answerText: result.answerText,
                 analysis: result.analysis,
                 fontSizeHint: previousStructured?.problem.fontSizeHint,
-                solutionFinalAnswer: result.answerText,
+                solutionFinalAnswer: result.solutionFinalAnswer?.trim() || result.answerText,
+                solutionSteps: result.solutionSteps,
+                mistakeStudentSteps: result.mistakeStudentSteps,
+                mistakeWrongStepIndex: result.mistakeWrongStepIndex ?? null,
+                mistakeWhyWrong: result.mistakeWhyWrong,
+                mistakeFixSuggestion: result.mistakeFixSuggestion,
             });
 
             const mergedStructured = nextStructured
@@ -247,6 +267,12 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 answerText: result.answerText,
                 analysis: result.analysis,
                 knowledgePoints: result.knowledgePoints?.length ? result.knowledgePoints : prev.knowledgePoints,
+                solutionFinalAnswer: result.solutionFinalAnswer,
+                solutionSteps: result.solutionSteps,
+                mistakeStudentSteps: result.mistakeStudentSteps,
+                mistakeWrongStepIndex: result.mistakeWrongStepIndex,
+                mistakeWhyWrong: result.mistakeWhyWrong,
+                mistakeFixSuggestion: result.mistakeFixSuggestion,
                 structuredJson: mergedStructured,
             }));
 
@@ -546,7 +572,16 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                         <div className="space-y-2">
                                             <Label>{t.editor.studentSteps || "Student Steps"}</Label>
                                             <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={buildSolutionMarkdown(mistakeStudentStepsText)} />
+                                                <div className="space-y-2">
+                                                    {textToLines(mistakeStudentStepsText).map((line, idx) => (
+                                                        <div key={`mistake-step-${idx}`} className="flex items-start gap-2">
+                                                            <span className="w-6 shrink-0 font-medium">{idx + 1}.</span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <MarkdownRenderer content={normalizeMathLine(normalizeStepDisplayLine(line))} />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -560,14 +595,14 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                         <div className="space-y-2">
                                             <Label>{t.editor.whyWrong || "Why Wrong"}</Label>
                                             <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={mistakeWhyWrong || ""} />
+                                                <MarkdownRenderer content={normalizeMathLine(mistakeWhyWrong || "")} />
                                             </div>
                                         </div>
 
                                         <div className="space-y-2">
                                             <Label>{t.editor.fixSuggestion || "How to Fix"}</Label>
                                             <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={mistakeFixSuggestion || ""} />
+                                                <MarkdownRenderer content={normalizeMathLine(mistakeFixSuggestion || "")} />
                                             </div>
                                         </div>
                                     </>

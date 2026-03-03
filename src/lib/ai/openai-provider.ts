@@ -1,5 +1,5 @@
 ﻿import OpenAI from "openai";
-import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ImageExtractResult, TextReasonResult } from "./types";
+import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ImageExtractResult, TextReasonResult, ReanswerResult, SimilarQuestionContext } from "./types";
 import {
     generateExtractPrompt,
     generateReasonPrompt,
@@ -54,7 +54,7 @@ export class OpenAIProvider implements AIService {
         }
 
         const contentStartIndex = startIndex + startTag.length;
-        const endIndex = text.lastIndexOf(endTag);
+        const endIndex = text.indexOf(endTag, contentStartIndex);
 
         if (endIndex === -1 && tagName === 'analysis') {
             return text.substring(contentStartIndex).trim();
@@ -67,12 +67,79 @@ export class OpenAIProvider implements AIService {
         return text.substring(contentStartIndex, endIndex).trim();
     }
 
+    private extractTagLoose(text: string, tagName: string, nextTagNames: string[] = []): string | null {
+        const startTag = `<${tagName}>`;
+        const startIndex = text.indexOf(startTag);
+        if (startIndex === -1) return null;
+
+        const contentStartIndex = startIndex + startTag.length;
+        const endTag = `</${tagName}>`;
+        let endIndex = text.indexOf(endTag, contentStartIndex);
+        if (endIndex === -1) {
+            endIndex = text.length;
+        }
+
+        for (const nextTagName of nextTagNames) {
+            const nextStartTag = `<${nextTagName}>`;
+            const nextStartIndex = text.indexOf(nextStartTag, contentStartIndex);
+            if (nextStartIndex !== -1 && nextStartIndex < endIndex) {
+                endIndex = nextStartIndex;
+            }
+        }
+
+        if (contentStartIndex >= endIndex) return null;
+        return text.substring(contentStartIndex, endIndex).trim();
+    }
+
+    private sanitizeXmlArtifacts(value: string): string {
+        if (!value) return "";
+        return value
+            .replace(/<\/?[a-zA-Z_][a-zA-Z0-9_]*>/g, "")
+            .trim();
+    }
+
     private parseStepList(raw: string | null): string[] {
         if (!raw) return [];
-        return raw
+        const lines = raw
             .split(/\r?\n|\|\|/)
+            .flatMap((entry) => {
+                const cleaned = this.sanitizeXmlArtifacts(entry)
+                    .replace(/([。；;])\s*(\d{1,2}[.)](?!\d))/g, "$1\n$2")
+                    .replace(/\s+(\d{1,2}[.)](?!\d))/g, "\n$1");
+                return cleaned.split(/\n+/);
+            })
             .map((entry) => entry.trim())
             .filter((entry) => entry.length > 0);
+
+        const steps: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+            const current = lines[i]
+                .replace(/^[-*•]\s*/, "")
+                .trim();
+            if (!current) continue;
+
+            if (/^\d+[\.\)]$/.test(current)) {
+                const next = lines[i + 1];
+                if (next) {
+                    const merged = next
+                        .replace(/^[-*•]\s*/, "")
+                        .replace(/^\d+[\.\)]\s*/, "")
+                        .trim();
+                    if (merged) {
+                        steps.push(merged);
+                        i += 1;
+                    }
+                }
+                continue;
+            }
+
+            const normalized = current.replace(/^\d+[\.\)]\s*/, "").trim();
+            if (normalized) {
+                steps.push(normalized);
+            }
+        }
+
+        return steps;
     }
 
     private parseOptionalInt(raw: string | null): number | null {
@@ -337,26 +404,40 @@ export class OpenAIProvider implements AIService {
         originalQuestion: string,
         knowledgePoints: string[],
         language: 'zh' | 'en' = 'zh',
-        difficulty: DifficultyLevel = 'medium'
+        difficulty: DifficultyLevel = 'medium',
+        context?: SimilarQuestionContext
     ): Promise<ParsedQuestion> {
         const config = getAppConfig();
+        const models = this.getStageModels();
+        const limits = this.getTokenLimits();
+        const maxTokens = Math.min(limits.stage2, 900);
         const systemPrompt = generateSimilarQuestionPrompt(language, originalQuestion, knowledgePoints, difficulty, {
             customTemplate: config.prompts?.similar
-        });
-        const userPrompt = `\nOriginal Question: "${originalQuestion}"\nKnowledge Points: ${knowledgePoints.join(", ")}\n`;
+        }, context);
+        const userPrompt = "Generate one similar math question and return only the required XML tags.";
+        const startedAt = Date.now();
 
         try {
             const response = await this.openai.chat.completions.create({
-                model: this.model,
+                model: models.stage2,
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userPrompt },
                 ],
-                max_tokens: 4096,
+                max_tokens: maxTokens,
             });
 
             const text = response.choices?.[0]?.message?.content || "";
             if (!text) throw new Error("Empty response from AI");
+
+            logger.info({
+                provider: 'OpenAI',
+                stage: 'similar',
+                model: models.stage2,
+                maxTokens,
+                durationMs: Date.now() - startedAt,
+                responseChars: text.length,
+            }, 'Generate similar question done');
 
             return this.parseResponse(text);
         } catch (error) {
@@ -370,9 +451,21 @@ export class OpenAIProvider implements AIService {
         language: 'zh' | 'en' = 'zh',
         subject?: string | null,
         imageBase64?: string
-    ): Promise<{ answerText: string; analysis: string; knowledgePoints: string[] }> {
-        const { generateReanswerPrompt } = await import('./prompts');
-        const prompt = generateReanswerPrompt(language, questionText, subject);
+    ): Promise<ReanswerResult> {
+        void subject;
+        const models = this.getStageModels();
+        const limits = this.getTokenLimits();
+        const prefetchedMathTags = await getMathTagsFromDB(null);
+        const prompt = generateReasonPrompt(
+            language,
+            questionText,
+            [],
+            null,
+            {
+                customTemplate: getAppConfig().prompts?.analyze,
+                prefetchedMathTags,
+            }
+        );
 
         try {
             type OpenAIUserContent =
@@ -392,22 +485,68 @@ export class OpenAIProvider implements AIService {
             }
 
             const response = await this.openai.chat.completions.create({
-                model: this.model,
+                model: models.stage2,
                 messages: [
                     { role: "system", content: prompt },
                     { role: "user", content: userContent }
                 ],
-                max_tokens: 4096,
+                max_tokens: limits.stage2,
             });
 
             const text = response.choices?.[0]?.message?.content || "";
             if (!text) throw new Error("Empty response from AI");
 
-            const answerText = this.extractTag(text, "answer_text") || "";
-            const analysis = this.extractTag(text, "analysis") || "";
-            const knowledgePoints = this.parseKnowledgePoints(this.extractTag(text, "knowledge_points"));
+            const answerTextRaw =
+                this.extractTagLoose(text, "answer_text", ["analysis", "knowledge_points"])
+                || this.extractTag(text, "answer_text")
+                || "";
+            const analysisRaw =
+                this.extractTagLoose(text, "analysis", ["knowledge_points"])
+                || this.extractTag(text, "analysis")
+                || "";
+            const knowledgePointsRaw =
+                this.extractTagLoose(text, "knowledge_points")
+                || this.extractTag(text, "knowledge_points");
+            const solutionFinalAnswerRaw =
+                this.extractTagLoose(text, "solution_final_answer", ["solution_steps", "mistake_student_steps", "mistake_wrong_step_index", "mistake_why_wrong", "mistake_fix_suggestion"])
+                || this.extractTag(text, "solution_final_answer");
+            const solutionStepsRaw =
+                this.extractTagLoose(text, "solution_steps", ["mistake_student_steps", "mistake_wrong_step_index", "mistake_why_wrong", "mistake_fix_suggestion"])
+                || this.extractTag(text, "solution_steps");
+            const mistakeStudentStepsRaw =
+                this.extractTagLoose(text, "mistake_student_steps", ["mistake_wrong_step_index", "mistake_why_wrong", "mistake_fix_suggestion"])
+                || this.extractTag(text, "mistake_student_steps");
+            const mistakeWrongStepIndexRaw =
+                this.extractTagLoose(text, "mistake_wrong_step_index", ["mistake_why_wrong", "mistake_fix_suggestion"])
+                || this.extractTag(text, "mistake_wrong_step_index");
+            const mistakeWhyWrongRaw =
+                this.extractTagLoose(text, "mistake_why_wrong", ["mistake_fix_suggestion"])
+                || this.extractTag(text, "mistake_why_wrong");
+            const mistakeFixSuggestionRaw =
+                this.extractTagLoose(text, "mistake_fix_suggestion")
+                || this.extractTag(text, "mistake_fix_suggestion");
 
-            return { answerText, analysis, knowledgePoints };
+            const answerText = this.sanitizeXmlArtifacts(answerTextRaw);
+            const analysis = this.sanitizeXmlArtifacts(analysisRaw);
+            const knowledgePoints = this.parseKnowledgePoints(knowledgePointsRaw);
+            const solutionFinalAnswer = this.sanitizeXmlArtifacts(solutionFinalAnswerRaw || "");
+            const solutionSteps = this.parseStepList(solutionStepsRaw);
+            const mistakeStudentSteps = this.parseStepList(mistakeStudentStepsRaw);
+            const mistakeWrongStepIndex = this.parseOptionalInt(mistakeWrongStepIndexRaw);
+            const mistakeWhyWrong = this.sanitizeXmlArtifacts(mistakeWhyWrongRaw || "");
+            const mistakeFixSuggestion = this.sanitizeXmlArtifacts(mistakeFixSuggestionRaw || "");
+
+            return {
+                answerText,
+                analysis,
+                knowledgePoints,
+                solutionFinalAnswer: solutionFinalAnswer || undefined,
+                solutionSteps: solutionSteps.length > 0 ? solutionSteps : undefined,
+                mistakeStudentSteps: mistakeStudentSteps.length > 0 ? mistakeStudentSteps : undefined,
+                mistakeWrongStepIndex,
+                mistakeWhyWrong: mistakeWhyWrong || undefined,
+                mistakeFixSuggestion: mistakeFixSuggestion || undefined,
+            };
         } catch (error) {
             this.handleError(error);
             throw error;

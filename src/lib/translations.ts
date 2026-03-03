@@ -84,6 +84,8 @@ export const translations = {
             support: "Support JPG, PNG (Max 5MB)",
             analyze: "Analyze with AI",
             // analyzing: "Analyzing...", // Moved to app
+            camera: "Capture Upload",
+            cameraDesc: "Use camera to take a photo of the question (recommended on mobile).",
             screenshot: "Screenshot",
             screenshotDesc: "Capture screen content (select 'This Tab' to avoid switching)",
             screenshotNotSupported: "Screenshot not supported in this browser",
@@ -357,6 +359,10 @@ export const translations = {
             general: {
                 timeoutLabel: "AI Analysis Timeout (Seconds)",
                 timeoutDesc: "Increase this value if you experience frequent timeouts during AI analysis.",
+                defaultNotebookLabel: "Default Notebook",
+                defaultNotebookPlaceholder: "Select default notebook",
+                defaultNotebookEmpty: "No notebooks available",
+                defaultNotebookDesc: "Clicking 'View Notebook' on home will open this notebook directly.",
             },
             tabs: {
                 general: "General",
@@ -679,6 +685,8 @@ export const translations = {
             support: "支持 JPG, PNG (最大 5MB)",
             analyze: "AI 智能解析",
             // analyzing: "解析中...", // Moved to app
+            camera: "拍摄上传",
+            cameraDesc: "调用相机拍照上传（手机端推荐）",
             screenshot: "屏幕截图",
             screenshotDesc: "捕获屏幕内容（建议选择‘整个屏幕’或‘窗口’以获得最佳效果）",
             screenshotNotSupported: "此浏览器不支持屏幕截图",
@@ -952,6 +960,10 @@ export const translations = {
             general: {
                 timeoutLabel: "AI 分析超时时间 (秒)",
                 timeoutDesc: "如果 AI 分析频繁超时，请增加此值。",
+                defaultNotebookLabel: "默认纠错本",
+                defaultNotebookPlaceholder: "选择默认纠错本",
+                defaultNotebookEmpty: "暂无纠错本",
+                defaultNotebookDesc: "首页点击“查看纠错本”时将直接进入该纠错本。",
             },
             tabs: {
                 general: "通用",

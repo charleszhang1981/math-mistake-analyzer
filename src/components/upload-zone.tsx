@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef, type ChangeEvent } from "react";
 import { useDropzone } from "react-dropzone";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { UploadCloud, Loader2, Monitor } from "lucide-react";
+import { UploadCloud, Loader2, Monitor, Camera } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 // 添加 CaptureController 类型声明
@@ -27,6 +27,7 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     const { t } = useLanguage();
     const [isScreenshotting, setIsScreenshotting] = useState(false);
     const [isClient, setIsClient] = useState(false);
+    const cameraInputRef = useRef<HTMLInputElement | null>(null);
     // 确保只在客户端渲染屏幕截图功能
     useEffect(() => {
         setIsClient(true);
@@ -56,6 +57,18 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
         maxFiles: 1,
         disabled: isAnalyzing,
     });
+
+    const handleOpenCamera = () => {
+        cameraInputRef.current?.click();
+    };
+
+    const handleCameraFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            onImageSelect(file);
+        }
+        event.target.value = "";
+    };
     // 检查是否支持屏幕截图
     const isScreenshotSupported = () => {
         return isClient &&
@@ -207,24 +220,57 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
                 </CardContent>
             </Card>
             {/* 屏幕截图按钮 - 只在客户端渲染 */}
-            {isScreenshotSupported() && (
+            {isClient && (
+                <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleCameraFileChange}
+                    disabled={isAnalyzing || isScreenshotting}
+                />
+            )}
+
+            {isClient && (
                 <div className="flex flex-col items-center gap-2">
-                    <Button
-                        variant="outline"
-                        onClick={handleScreenshot}
-                        disabled={isAnalyzing || isScreenshotting}
-                        className="flex items-center gap-2"
-                    >
-                        {isScreenshotting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Monitor className="h-4 w-4" />
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={handleOpenCamera}
+                            disabled={isAnalyzing || isScreenshotting}
+                            className="flex items-center gap-2"
+                        >
+                            <Camera className="h-4 w-4" />
+                            {t.upload.camera}
+                        </Button>
+
+                        {isScreenshotSupported() && (
+                            <Button
+                                variant="outline"
+                                onClick={handleScreenshot}
+                                disabled={isAnalyzing || isScreenshotting}
+                                className="flex items-center gap-2"
+                            >
+                                {isScreenshotting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Monitor className="h-4 w-4" />
+                                )}
+                                {isScreenshotting ? t.common.pleaseWait : t.upload.screenshot}
+                            </Button>
                         )}
-                        {isScreenshotting ? t.common.pleaseWait : t.upload.screenshot}
-                    </Button>
+                    </div>
+
                     <p className="text-xs text-muted-foreground text-center">
-                        {t.upload.screenshotDesc}
+                        {t.upload.cameraDesc}
                     </p>
+
+                    {isScreenshotSupported() && (
+                        <p className="text-xs text-muted-foreground text-center">
+                            {t.upload.screenshotDesc}
+                        </p>
+                    )}
                 </div>
             )}
         </div>

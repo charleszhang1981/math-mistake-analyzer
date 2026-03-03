@@ -30,6 +30,9 @@ interface SupabaseErrorBody {
 
 const MAX_RETRIES = 2;
 const BASE_RETRY_DELAY_MS = 250;
+const DEFAULT_SIGNED_URL_TIMEOUT_MS = 2500;
+const DEFAULT_SIGNED_URL_CACHE_TTL_MS = 10 * 60 * 1000;
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,6 +59,55 @@ function isBucketNotFound(status: number, message: string): boolean {
 
 function retryDelayMs(attempt: number): number {
     return BASE_RETRY_DELAY_MS * (attempt + 1);
+}
+
+function getSignedUrlCacheKey(bucket: string, key: string, expiresIn: number): string {
+    return `${bucket}:${key}:${expiresIn}`;
+}
+
+function getCachedSignedUrl(cacheKey: string): string | null {
+    const now = Date.now();
+    const cached = signedUrlCache.get(cacheKey);
+    if (!cached) return null;
+    if (cached.expiresAt <= now) {
+        signedUrlCache.delete(cacheKey);
+        return null;
+    }
+    return cached.url;
+}
+
+function setCachedSignedUrl(cacheKey: string, url: string, ttlMs: number): void {
+    const now = Date.now();
+    signedUrlCache.set(cacheKey, {
+        url,
+        expiresAt: now + ttlMs,
+    });
+
+    // Opportunistic cleanup to prevent unbounded growth.
+    if (signedUrlCache.size > 2000) {
+        for (const [key, entry] of signedUrlCache.entries()) {
+            if (entry.expiresAt <= now) {
+                signedUrlCache.delete(key);
+            }
+        }
+    }
+}
+
+async function fetchWithTimeout(
+    input: string,
+    init: RequestInit,
+    timeoutMs: number
+): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(input, {
+            ...init,
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 function normalizeSignedUrl(supabaseUrl: string, signedPath: string): string {
@@ -220,16 +272,32 @@ export async function uploadPrivateObject(params: {
 export async function createSignedObjectUrl(params: {
     key: string;
     expiresIn?: number;
+    timeoutMs?: number;
+    maxRetries?: number;
+    disableCache?: boolean;
+    cacheTtlMs?: number;
 }): Promise<string> {
     const { supabaseUrl, serviceRoleKey, bucket } = getStorageConfig();
     const encodedKey = encodeStorageKey(params.key);
     const expiresIn = params.expiresIn ?? 1800;
+    const timeoutMs = params.timeoutMs ?? DEFAULT_SIGNED_URL_TIMEOUT_MS;
+    const maxRetries = params.maxRetries ?? MAX_RETRIES;
+    const disableCache = params.disableCache ?? false;
+    const cacheTtlMs = params.cacheTtlMs ?? DEFAULT_SIGNED_URL_CACHE_TTL_MS;
+    const cacheKey = getSignedUrlCacheKey(bucket, params.key, expiresIn);
     let bucketEnsured = false;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    if (!disableCache) {
+        const cachedUrl = getCachedSignedUrl(cacheKey);
+        if (cachedUrl) {
+            return cachedUrl;
+        }
+    }
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
         let res: Response;
         try {
-            res = await fetch(
+            res = await fetchWithTimeout(
                 `${supabaseUrl}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodedKey}`,
                 {
                     method: 'POST',
@@ -239,11 +307,12 @@ export async function createSignedObjectUrl(params: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ expiresIn }),
-                }
+                },
+                timeoutMs
             );
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            const canRetry = attempt < MAX_RETRIES;
+            const canRetry = attempt < maxRetries;
             if (canRetry) {
                 const delayMs = retryDelayMs(attempt);
                 logger.warn(
@@ -262,7 +331,12 @@ export async function createSignedObjectUrl(params: {
             if (!signedPath) {
                 throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Missing signed URL in response');
             }
-            return normalizeSignedUrl(supabaseUrl, signedPath);
+            const normalizedUrl = normalizeSignedUrl(supabaseUrl, signedPath);
+            if (!disableCache && cacheTtlMs > 0) {
+                const ttl = Math.max(5_000, Math.min(cacheTtlMs, expiresIn * 1000 - 30_000));
+                setCachedSignedUrl(cacheKey, normalizedUrl, ttl);
+            }
+            return normalizedUrl;
         }
 
         const message = await parseSupabaseError(res);
@@ -273,7 +347,7 @@ export async function createSignedObjectUrl(params: {
         }
 
         const retryable = shouldRetrySupabase(res.status, message);
-        const canRetry = retryable && attempt < MAX_RETRIES;
+        const canRetry = retryable && attempt < maxRetries;
         if (canRetry) {
             const delayMs = retryDelayMs(attempt);
             logger.warn(

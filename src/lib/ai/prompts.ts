@@ -16,6 +16,12 @@ export interface PromptOptions {
   prefetchedEnglishTags?: string[];
 }
 
+export interface SimilarQuestionPromptContext {
+  gradeSemester?: string | null;
+  mistakeWhyWrong?: string | null;
+  confirmedRootCause?: string | null;
+}
+
 function replaceVariables(template: string, variables: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => variables[key] || '');
 }
@@ -61,11 +67,24 @@ DIFFICULTY LEVEL: {{difficulty_level}}
 
 Original Question: {{original_question}}
 Knowledge Points: {{knowledge_points}}
+Grade/Semester Context: {{grade_context}}
+Mistake Context (H): {{mistake_context}}
+Student Confirmed Root Cause (I): {{root_cause_context}}
+
+Rules:
+1) Keep math subject only.
+2) Keep target knowledge points aligned.
+3) If root cause is provided, design the new question to target that weakness.
+4) Keep output concise and exam-style.
+5) Keep question_text to 1-3 lines; avoid verbose wording.
+6) Keep answer_text as a short final answer only.
+7) Keep analysis to 2-4 short sentences; no long derivation.
+8) Prefer simple math notation; avoid \\left and \\right.
 
 Output ONLY:
 <question_text>new question</question_text>
 <answer_text>answer</answer_text>
-<analysis>analysis</analysis>
+<analysis>short analysis</analysis>
 {{provider_hints}}`;
 
 export const DEFAULT_REANSWER_TEMPLATE = `You are a professional math teacher.
@@ -77,10 +96,23 @@ Question:
 Subject hint:
 {{subject_hint}}
 
+Rules:
+1) Subject is fixed to Math.
+2) analysis must be a short teaching summary (2-4 sentences).
+3) Put detailed derivation in <solution_steps>.
+4) In <solution_steps> and <mistake_student_steps>, each step must be a complete line.
+5) Do NOT output a standalone numbering line like "1.".
+
 Output ONLY:
 <answer_text>answer</answer_text>
 <analysis>analysis</analysis>
 <knowledge_points>comma-separated tags</knowledge_points>
+<solution_final_answer>one-line answer</solution_final_answer>
+<solution_steps>one complete step per line</solution_steps>
+<mistake_student_steps>one complete step per line</mistake_student_steps>
+<mistake_wrong_step_index>1-based index or empty</mistake_wrong_step_index>
+<mistake_why_wrong>short reason</mistake_why_wrong>
+<mistake_fix_suggestion>how to fix</mistake_fix_suggestion>
 {{provider_hints}}`;
 
 export function generateAnalyzePrompt(
@@ -116,7 +148,8 @@ export function generateSimilarQuestionPrompt(
   originalQuestion: string,
   knowledgePoints: string[],
   difficulty: 'easy' | 'medium' | 'hard' | 'harder' = 'medium',
-  options?: PromptOptions
+  options?: PromptOptions,
+  context?: SimilarQuestionPromptContext
 ): string {
   const langInstruction = language === 'zh'
     ? '请使用中文。Please output in Chinese when possible. (Chinese)'
@@ -130,13 +163,21 @@ export function generateSimilarQuestionPrompt(
   }[difficulty];
 
   const template = options?.customTemplate || DEFAULT_SIMILAR_TEMPLATE;
+  const normalizeContext = (value: string | null | undefined, fallback: string): string => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return fallback;
+    return trimmed.replace(/\r?\n/g, " ").slice(0, 300);
+  };
 
   return replaceVariables(template, {
     language_instruction: langInstruction,
     difficulty_level: difficulty.toUpperCase(),
     difficulty_instruction: difficultyInstruction,
     original_question: originalQuestion.replace(/"/g, '\\"').replace(/\n/g, '\\n'),
-    knowledge_points: knowledgePoints.join(', '),
+    knowledge_points: knowledgePoints.length > 0 ? knowledgePoints.join(', ') : '(none)',
+    grade_context: normalizeContext(context?.gradeSemester, '(not provided)'),
+    mistake_context: normalizeContext(context?.mistakeWhyWrong, '(not provided)'),
+    root_cause_context: normalizeContext(context?.confirmedRootCause, '(not provided)'),
     provider_hints: options?.providerHints || '',
   }).trim();
 }

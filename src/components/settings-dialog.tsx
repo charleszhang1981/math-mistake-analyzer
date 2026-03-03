@@ -27,9 +27,13 @@ import { useSession } from "next-auth/react";
 import { UserManagement } from "@/components/admin/user-management";
 import { apiClient } from "@/lib/api-client";
 import { frontendLogger } from "@/lib/frontend-logger";
-import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance } from "@/types/api";
+import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance, Notebook } from "@/types/api";
 import { ModelSelector } from "@/components/ui/model-selector";
 import { PromptSettings } from "@/components/settings/prompt-settings";
+import {
+    getDefaultNotebookId as getDefaultNotebookIdFromPrefs,
+    setDefaultNotebookId as setDefaultNotebookIdToPrefs,
+} from "@/lib/notebook-preferences";
 
 import { MessageSquareText, Info, ExternalLink, Github, ScrollText } from "lucide-react";
 import packageJson from "../../package.json";
@@ -93,6 +97,8 @@ export function SettingsDialog() {
     const [profileSaving, setProfileSaving] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+    const [defaultNotebookId, setDefaultNotebookId] = useState("");
     const isConfigManagedByEnv = true;
 
     const router = useRouter();
@@ -101,6 +107,7 @@ export function SettingsDialog() {
         if (open) {
             fetchSettings();
             fetchProfile();
+            fetchNotebooks();
         }
     }, [open]);
 
@@ -131,6 +138,31 @@ export function SettingsDialog() {
             frontendLogger.error('[SettingsDialog]', 'Failed to fetch profile', { error: error instanceof Error ? error.message : String(error) });
         } finally {
             setProfileLoading(false);
+        }
+    };
+
+    const fetchNotebooks = async () => {
+        try {
+            const data = await apiClient.get<Notebook[]>("/api/notebooks");
+            setNotebooks(data);
+
+            if (data.length === 0) {
+                setDefaultNotebookId("");
+                return;
+            }
+
+            const savedDefault = getDefaultNotebookIdFromPrefs();
+            const savedExists = !!savedDefault && data.some((notebook) => notebook.id === savedDefault);
+            const fallbackId = savedExists ? savedDefault! : data[0].id;
+
+            if (!savedExists) {
+                setDefaultNotebookIdToPrefs(fallbackId);
+            }
+            setDefaultNotebookId(fallbackId);
+        } catch (error) {
+            frontendLogger.error('[SettingsDialog]', 'Failed to fetch notebooks for default selection', {
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
     };
 
@@ -243,6 +275,11 @@ export function SettingsDialog() {
         } finally {
             setProfileSaving(false);
         }
+    };
+
+    const handleDefaultNotebookChange = (notebookId: string) => {
+        setDefaultNotebookId(notebookId);
+        setDefaultNotebookIdToPrefs(notebookId);
     };
 
     const handleClearData = async () => {
@@ -578,6 +615,37 @@ export function SettingsDialog() {
                                         <SelectItem value="en">English</SelectItem>
                                     </SelectContent>
                                 </Select>
+                            </div>
+
+                            <div className="space-y-2 pt-4 border-t">
+                                <Label>{t.settings?.general?.defaultNotebookLabel || "默认纠错本"}</Label>
+                                <Select
+                                    value={defaultNotebookId || "none"}
+                                    onValueChange={(value) => {
+                                        if (value === "none") return;
+                                        handleDefaultNotebookChange(value);
+                                    }}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={t.settings?.general?.defaultNotebookPlaceholder || "选择默认纠错本"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {notebooks.length === 0 ? (
+                                            <SelectItem value="none" disabled>
+                                                {t.settings?.general?.defaultNotebookEmpty || "暂无纠错本"}
+                                            </SelectItem>
+                                        ) : (
+                                            notebooks.map((notebook) => (
+                                                <SelectItem key={notebook.id} value={notebook.id}>
+                                                    {notebook.name}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    {t.settings?.general?.defaultNotebookDesc || "首页点击“查看纠错本”时将直接进入该纠错本。"}
+                                </p>
                             </div>
 
                             <div className="space-y-2 pt-4 border-t">

@@ -8,7 +8,7 @@ import { CorrectionEditor } from "@/components/correction-editor";
 import { ImageCropper } from "@/components/image-cropper";
 import { UserWelcome } from "@/components/user-welcome";
 import { apiClient } from "@/lib/api-client";
-import { AnalyzeResponse, AppConfig } from "@/types/api";
+import { AnalyzeResponse, AppConfig, Notebook } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
@@ -20,6 +20,7 @@ import { signOut } from "next-auth/react";
 
 import { ProgressFeedback, ProgressStatus } from "@/components/ui/progress-feedback";
 import { frontendLogger } from "@/lib/frontend-logger";
+import { getDefaultNotebookId, setDefaultNotebookId } from "@/lib/notebook-preferences";
 
 function extractApiErrorMessage(error: unknown): string | null {
     if (!error || typeof error !== 'object' || !('data' in error)) return null;
@@ -45,6 +46,7 @@ function HomeContent() {
     const initialNotebookId = searchParams.get("notebook");
 
     const [config, setConfig] = useState<AppConfig | null>(null);
+    const [openingNotebook, setOpeningNotebook] = useState(false);
 
     // Cropper state
     const [croppingImage, setCroppingImage] = useState<string | null>(null);
@@ -329,6 +331,33 @@ function HomeContent() {
         }
     };
 
+    const handleOpenDefaultNotebook = async () => {
+        if (openingNotebook) return;
+        setOpeningNotebook(true);
+        try {
+            const notebooks = await apiClient.get<Notebook[]>("/api/notebooks");
+            if (notebooks.length === 0) {
+                router.push("/notebooks");
+                return;
+            }
+
+            const savedDefaultId = getDefaultNotebookId();
+            const hasSavedDefault = !!savedDefaultId && notebooks.some((n) => n.id === savedDefaultId);
+            const targetNotebookId = hasSavedDefault ? savedDefaultId! : notebooks[0].id;
+
+            if (!hasSavedDefault) {
+                setDefaultNotebookId(targetNotebookId);
+            }
+
+            router.push(`/notebooks/${targetNotebookId}`);
+        } catch (error) {
+            console.error("Failed to open default notebook:", error);
+            router.push("/notebooks");
+        } finally {
+            setOpeningNotebook(false);
+        }
+    };
+
     const getProgressMessage = () => {
         switch (analysisStep) {
             case 'compressing': return t.common.progress?.compressing || "Compressing...";
@@ -383,18 +412,18 @@ function HomeContent() {
 
                     {!initialNotebookId && (
                         <>
-                            <Link href="/notebooks" className="w-full">
-                                <Button
-                                    variant="outline"
-                                    size="lg"
-                                    className="w-full h-auto py-4 text-base shadow-sm hover:shadow-md transition-all border hover:border-primary/50 hover:bg-accent/50"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <BookOpen className="h-5 w-5" />
-                                        <span>{t.app.viewNotebook}</span>
-                                    </div>
-                                </Button>
-                            </Link>
+                            <Button
+                                variant="outline"
+                                size="lg"
+                                className="w-full h-auto py-4 text-base shadow-sm hover:shadow-md transition-all border hover:border-primary/50 hover:bg-accent/50"
+                                onClick={handleOpenDefaultNotebook}
+                                disabled={openingNotebook}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <BookOpen className="h-5 w-5" />
+                                    <span>{t.app.viewNotebook}</span>
+                                </div>
+                            </Button>
 
                             <Link href="/tags" className="w-full">
                                 <Button

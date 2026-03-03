@@ -7,8 +7,34 @@ import { createLogger } from "@/lib/logger";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE } from "@/lib/constants/pagination";
 import { buildErrorItemWhereClause } from "@/lib/error-item-filters";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
+import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
 
 const logger = createLogger("api:error-items:list");
+const SIGNED_URL_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+    list: T[],
+    concurrency: number,
+    mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+    if (list.length === 0) return [];
+
+    const safeConcurrency = Math.max(1, Math.min(concurrency, list.length));
+    const results: R[] = new Array(list.length);
+    let nextIndex = 0;
+
+    async function worker() {
+        while (true) {
+            const current = nextIndex;
+            nextIndex += 1;
+            if (current >= list.length) return;
+            results[current] = await mapper(list[current]);
+        }
+    }
+
+    await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+    return results;
+}
 
 export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
@@ -71,14 +97,11 @@ export async function GET(req: Request) {
         });
 
         const items = includeSignedImage
-            ? await Promise.all(
-                errorItems.map(async (item) => {
+            ? await mapWithConcurrency(errorItems, SIGNED_URL_CONCURRENCY, async (item) => {
                     const imageKeyForDisplay =
                         item.cropImageKey ||
                         item.rawImageKey ||
-                        (typeof item.originalImageUrl === "string" && item.originalImageUrl.startsWith("storage:")
-                            ? item.originalImageUrl.slice("storage:".length)
-                            : null);
+                        extractStorageKeyFromImageRef(item.originalImageUrl);
 
                     if (!imageKeyForDisplay) {
                         return item;
@@ -94,14 +117,22 @@ export async function GET(req: Request) {
                             originalImageUrl: signedUrl,
                         };
                     } catch (signError) {
+                        const hasResolvableStorageRef = !!extractStorageKeyFromImageRef(item.originalImageUrl);
+                        const safeOriginalImageUrl =
+                            hasResolvableStorageRef
+                                ? null
+                                : item.originalImageUrl;
+
                         logger.warn(
                             { errorItemId: item.id, signError, imageKeyForDisplay },
                             "Failed to sign image URL in list route, fallback to stored originalImageUrl"
                         );
-                        return item;
+                        return {
+                            ...item,
+                            originalImageUrl: safeOriginalImageUrl,
+                        };
                     }
                 })
-            )
             : errorItems;
 
         return NextResponse.json({

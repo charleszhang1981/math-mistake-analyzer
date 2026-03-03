@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/api-client";
 import { UserProfile } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeStructuredQuestionJson, type StructuredQuestionJson } from "@/lib/ai/structured-json";
+import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
 
 interface KnowledgeTag {
     id: string;
@@ -33,6 +34,9 @@ interface ErrorItemDetail {
     tags: KnowledgeTag[]; // 鏂扮殑鏍囩鍏宠仈
     masteryLevel: number;
     originalImageUrl: string;
+    rawImageKey?: string | null;
+    cropImageKey?: string | null;
+    displayImageKey?: string | null;
     userNotes: string | null;
     subjectId?: string | null;
     subject?: {
@@ -42,6 +46,17 @@ interface ErrorItemDetail {
     gradeSemester?: string | null;
     paperLevel?: string | null;
     structuredJson?: StructuredQuestionJson | null;
+}
+
+function isHttpUrl(url: string | null | undefined): boolean {
+    return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
+function getResolvableImageKey(item: ErrorItemDetail): string | null {
+    if (item.displayImageKey) return item.displayImageKey;
+    if (item.cropImageKey) return item.cropImageKey;
+    if (item.rawImageKey) return item.rawImageKey;
+    return extractStorageKeyFromImageRef(item.originalImageUrl);
 }
 
 function linesToText(lines?: string[] | null): string {
@@ -79,26 +94,40 @@ function normalizeMathLine(line: string): string {
         return line;
     }
 
-    const hasLatexCommand = /\\[a-zA-Z]+/.test(trimmed);
-    const hasMathOperator = /[=+\-*/^]/.test(trimmed);
+    const withoutLeftRight = line.replace(/\\left/g, "").replace(/\\right/g, "");
+    const hasLatexCommand = /\\[a-zA-Z]+/.test(withoutLeftRight);
+    const hasMathOperator = /[=+\-*/^]/.test(withoutLeftRight);
     if (!hasLatexCommand && !hasMathOperator) {
         return line;
     }
 
-    const naturalText = trimmed
+    const naturalText = withoutLeftRight
         .replace(/\\[a-zA-Z]+/g, "")
         .replace(/[{}\[\]()0-9+\-*/^_=.,:\s]/g, "");
+
+    // Mixed natural language + LaTeX: wrap only LaTeX fragments.
     if (/[A-Za-z\u4e00-\u9fff]/.test(naturalText)) {
-        return line;
+        return withoutLeftRight.replace(
+            /\\(?:frac\{[^{}]*\}\{[^{}]*\}|sqrt\{[^{}]*\}|times|div|cdot|leq|geq|neq|pm|mp|sin|cos|tan|log|ln|pi|theta|alpha|beta|gamma|delta|sum|prod|int|infty|approx|sim|text\{[^{}]*\}|boxed\{[^{}]*\})/g,
+            (match) => `$${match}$`
+        );
     }
 
-    return `$${trimmed}$`;
+    return `$${withoutLeftRight.trim()}$`;
 }
 
 function buildSolutionMarkdown(stepsText: string): string {
     const lines = textToLines(stepsText);
     if (lines.length === 0) return "";
     return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
+}
+
+function normalizeStepDisplayLine(line: string): string {
+    return line
+        .trim()
+        .replace(/^\d+[\.\)]\s*/, "")
+        .replace(/^(?:步骤|step)\s*\d+\s*[:：]\s*/i, "")
+        .trim();
 }
 
 export default function ErrorDetailPage() {
@@ -145,6 +174,26 @@ export default function ErrorDetailPage() {
         try {
             const data = await apiClient.get<ErrorItemDetail>(`/api/error-items/${id}`);
             setItem(data);
+
+            const imageKey = getResolvableImageKey(data);
+            if (imageKey && !isHttpUrl(data.originalImageUrl)) {
+                void apiClient
+                    .get<ErrorItemDetail>(`/api/error-items/${id}?includeSignedImage=1`)
+                    .then((signedData) => {
+                        if (!signedData || !isHttpUrl(signedData.originalImageUrl)) return;
+                        setItem((prev) => {
+                            if (!prev || prev.id !== id) return prev;
+                            return {
+                                ...prev,
+                                originalImageUrl: signedData.originalImageUrl,
+                                displayImageKey: signedData.displayImageKey || imageKey,
+                            };
+                        });
+                    })
+                    .catch((signError) => {
+                        console.warn("[ErrorDetail] Failed to fetch signed image URL", signError);
+                    });
+            }
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.loadFailed || 'Failed to load item');
@@ -881,7 +930,16 @@ export default function ErrorDetailPage() {
                                         <div className="space-y-2">
                                             <h4 className="text-sm font-medium">{t.editor.studentSteps || "Student Steps"}</h4>
                                             <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={buildSolutionMarkdown(mistakeStudentStepsText)} />
+                                                <div className="space-y-2">
+                                                    {textToLines(mistakeStudentStepsText).map((line, idx) => (
+                                                        <div key={`mistake-step-${idx}`} className="flex items-start gap-2">
+                                                            <span className="w-6 shrink-0 font-medium">{idx + 1}.</span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <MarkdownRenderer content={normalizeMathLine(normalizeStepDisplayLine(line))} />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="space-y-2">
@@ -895,13 +953,13 @@ export default function ErrorDetailPage() {
                                         <div className="space-y-2">
                                             <h4 className="text-sm font-medium">{t.editor.whyWrong || "Why Wrong"}</h4>
                                             <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={mistakeWhyWrong || ""} />
+                                                <MarkdownRenderer content={normalizeMathLine(mistakeWhyWrong || "")} />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
                                             <h4 className="text-sm font-medium">{t.editor.fixSuggestion || "How to Fix"}</h4>
                                             <div className="min-h-[90px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={mistakeFixSuggestion || ""} />
+                                                <MarkdownRenderer content={normalizeMathLine(mistakeFixSuggestion || "")} />
                                             </div>
                                         </div>
                                     </>
