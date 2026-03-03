@@ -84,6 +84,7 @@ model ErrorItem {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   subjectId      String?
   subject        Subject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questionNo     String
   
   originalImageUrl String
   rawImageKey      String?
@@ -115,6 +116,9 @@ model ErrorItem {
   updatedAt        DateTime @updatedAt
 
   reviewSchedules ReviewSchedule[]
+
+  @@unique([userId, questionNo])
+  @@index([questionNo])
 }
 
 model ReviewSchedule {

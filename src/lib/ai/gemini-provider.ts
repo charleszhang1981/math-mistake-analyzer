@@ -122,11 +122,20 @@ export class GeminiProvider implements AIService {
             .slice(0, 5);
     }
 
+    private parseFontSizeHint(raw: string | null): 'small' | 'normal' | 'large' {
+        const value = raw?.trim().toLowerCase();
+        if (value === 'small' || value === 'large' || value === 'normal') {
+            return value;
+        }
+        return 'normal';
+    }
+
     private parseExtractResponse(text: string): ImageExtractResult {
         const candidate: ImageExtractResult = {
             subject: '数学',
             questionText: this.extractTag(text, 'question_text') || '',
             requiresImage: this.extractTag(text, 'requires_image')?.toLowerCase().trim() === 'true',
+            fontSizeHint: this.parseFontSizeHint(this.extractTag(text, 'question_font_size_hint')),
             studentStepsRaw: this.parseStepList(this.extractTag(text, 'student_steps_raw')),
         };
 
@@ -168,6 +177,7 @@ export class GeminiProvider implements AIService {
             subject: '数学',
             knowledgePoints: this.parseKnowledgePoints(this.extractTag(text, 'knowledge_points')),
             requiresImage: this.extractTag(text, 'requires_image')?.toLowerCase().trim() === 'true',
+            fontSizeHint: this.parseFontSizeHint(this.extractTag(text, 'question_font_size_hint')),
             solutionFinalAnswer: this.extractTag(text, 'solution_final_answer') || undefined,
             solutionSteps: this.parseStepList(this.extractTag(text, 'solution_steps')),
             mistakeStudentSteps: this.parseStepList(this.extractTag(text, 'mistake_student_steps')),
@@ -198,8 +208,9 @@ export class GeminiProvider implements AIService {
         mimeType: string = "image/jpeg",
         language: 'zh' | 'en' = 'zh',
         grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
-        _subject?: string | null
+        subject?: string | null
     ): Promise<ParsedQuestion> {
+        void subject;
         const models = this.getStageModels();
         const limits = this.getTokenLimits();
         const flowStart = Date.now();
@@ -298,6 +309,7 @@ export class GeminiProvider implements AIService {
             subject: '数学',
             knowledgePoints: reason.knowledgePoints,
             requiresImage: extract.requiresImage,
+            fontSizeHint: extract.fontSizeHint,
             solutionFinalAnswer: reason.solutionFinalAnswer,
             solutionSteps: reason.solutionSteps,
             mistakeStudentSteps: reason.mistakeStudentSteps?.length

@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { calculateGrade } from "@/lib/grade-calculator";
 import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
+import { generateNextQuestionNo } from "@/lib/question-no";
 
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
+const MAX_QUESTION_NO_RETRIES = 5;
 
 async function ensureMathNotebook(userId: string) {
     const existingMath = await prisma.subject.findFirst({
@@ -190,34 +193,62 @@ export async function POST(req: Request) {
 
         // 创建错题记录
         try {
-            const errorItem = await prisma.errorItem.create({
-                data: {
-                    userId: user.id,
-                    subjectId: mathNotebook.id,
-                    originalImageUrl: originalImageUrl || `storage:${rawImageKey}`,
-                    rawImageKey: rawImageKey || undefined,
-                    cropImageKey: cropImageKey || undefined,
-                    questionText,
-                    answerText,
-                    analysis,
-                    knowledgePoints: JSON.stringify(tagNames),
-                    structuredJson: normalizedStructuredJson ?? undefined,
-                    gradeSemester: finalGradeSemester,
-                    paperLevel: paperLevel,
-                    masteryLevel: 0,
-                    tags: {
-                        connect: tagConnections,
-                    },
-                    reviewSchedules: {
-                        create: {
-                            scheduledFor: new Date(),
+            let errorItem: Prisma.ErrorItemGetPayload<{ include: { tags: true } }> | null = null;
+            for (let attempt = 1; attempt <= MAX_QUESTION_NO_RETRIES; attempt++) {
+                const questionNo = await generateNextQuestionNo(prisma, user.id);
+                try {
+                    errorItem = await prisma.errorItem.create({
+                        data: {
+                            userId: user.id,
+                            subjectId: mathNotebook.id,
+                            questionNo,
+                            originalImageUrl: originalImageUrl || `storage:${rawImageKey}`,
+                            rawImageKey: rawImageKey || undefined,
+                            cropImageKey: cropImageKey || undefined,
+                            questionText,
+                            answerText,
+                            analysis,
+                            knowledgePoints: JSON.stringify(tagNames),
+                            structuredJson: normalizedStructuredJson ?? undefined,
+                            gradeSemester: finalGradeSemester,
+                            paperLevel: paperLevel,
+                            masteryLevel: 0,
+                            tags: {
+                                connect: tagConnections,
+                            },
+                            reviewSchedules: {
+                                create: {
+                                    scheduledFor: new Date(),
+                                },
+                            },
                         },
-                    },
-                },
-                include: {
-                    tags: true,
-                },
-            });
+                        include: {
+                            tags: true,
+                        },
+                    });
+                    break;
+                } catch (createError) {
+                    const isQuestionNoConflict =
+                        createError instanceof Prisma.PrismaClientKnownRequestError
+                        && createError.code === "P2002"
+                        && Array.isArray(createError.meta?.target)
+                        && createError.meta.target.includes("userId")
+                        && createError.meta.target.includes("questionNo");
+
+                    if (!isQuestionNoConflict || attempt === MAX_QUESTION_NO_RETRIES) {
+                        throw createError;
+                    }
+
+                    logger.warn(
+                        { userId: user.id, attempt },
+                        "Question number conflict detected, retrying"
+                    );
+                }
+            }
+
+            if (!errorItem) {
+                throw new Error("Failed to allocate question number");
+            }
 
             logger.info({ errorItemId: errorItem.id, tagsCount: errorItem.tags?.length || 0 }, 'ErrorItem created successfully');
             return NextResponse.json(errorItem, { status: 201 });

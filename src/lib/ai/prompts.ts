@@ -169,6 +169,11 @@ export const DEFAULT_EXTRACT_TEMPLATE = `You are a math image extraction assista
 Task: extract only the textual math problem and optional student working steps from the image.
 Do not solve the problem.
 Do not output JSON or markdown code fences.
+Classify question font size using three levels:
+- large: printed question text is visibly larger than typical exam text.
+- normal: common exam/homework text size.
+- small: text is visibly dense or smaller than typical exam text.
+If uncertain, output normal.
 
 Output strictly with these tags only:
 <requires_image>
@@ -178,6 +183,10 @@ true or false
 <question_text>
 Full original problem text. Keep original language. Use Markdown + LaTeX when needed.
 </question_text>
+
+<question_font_size_hint>
+small | normal | large
+</question_font_size_hint>
 
 <student_steps_raw>
 Optional. Student-written steps, one step per line. Leave empty if unavailable.

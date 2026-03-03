@@ -14,20 +14,31 @@ import { ErrorItem, PaginatedResponse } from "@/types/api";
 type PrintMode = "review" | "redo";
 
 function buildStepsMarkdown(steps: string[]): string {
-    return steps.map((step, index) => `${index + 1}. ${step}`).join("\n");
+    return steps.map((step, index) => `${index + 1}. ${normalizeStepLine(step)}`).join("\n");
 }
 
-function parseLegacyTags(item: ErrorItem): string[] {
-    if (item.tags && item.tags.length > 0) {
-        return item.tags.map((tag) => tag.name);
+function normalizeStepLine(step: string): string {
+    const trimmed = step.trim();
+    if (!trimmed) return "";
+
+    const withoutPrefix = trimmed.replace(/^(\d+[\.\)]\s*|[-*]\s*)/, "");
+    if (/[`$]/.test(withoutPrefix) || /\\\(|\\\[/.test(withoutPrefix)) {
+        return withoutPrefix;
     }
 
-    try {
-        const parsed = JSON.parse(item.knowledgePoints || "[]");
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
+    const hasLatex = /\\[a-zA-Z]+/.test(withoutPrefix);
+    if (!hasLatex) {
+        return withoutPrefix;
     }
+
+    const equalIndex = withoutPrefix.indexOf("=");
+    if (equalIndex > -1 && equalIndex < withoutPrefix.length - 1) {
+        const left = withoutPrefix.slice(0, equalIndex + 1).trimEnd();
+        const right = withoutPrefix.slice(equalIndex + 1).trim();
+        return `${left} $${right}$`;
+    }
+
+    return `$${withoutPrefix}$`;
 }
 
 function PrintPreviewContent() {
@@ -100,7 +111,7 @@ function PrintPreviewContent() {
                                 className={printMode === "review" ? "rounded-r-none bg-secondary hover:bg-secondary/90" : "rounded-r-none"}
                                 onClick={() => setPrintMode("review")}
                             >
-                                模式1：原题 + G + H/I
+                                模式1：原题 + G + 简版H + I
                             </Button>
                             <Button
                                 size="sm"
@@ -172,30 +183,30 @@ function PrintPreviewContent() {
                 </div>
             </div>
 
-            <div className="max-w-[1400px] mx-auto p-8 print:p-0 print:max-w-none">
+            <div className="max-w-[1400px] mx-auto p-8 print:p-0 print:max-w-none print-sheet">
                 {items.map((item, index) => {
-                    const tags = parseLegacyTags(item);
                     const structured = normalizeStructuredQuestionJson(item.structuredJson);
 
                     const solutionFinalAnswer = structured?.solution.finalAnswer?.trim() || item.answerText || "";
                     const solutionSteps = structured?.solution.steps || [];
-                    const mistakeStudentSteps = structured?.mistake.studentSteps || [];
-                    const wrongStepIndex = typeof structured?.mistake.wrongStepIndex === "number"
-                        ? String(structured.mistake.wrongStepIndex + 1)
-                        : "-";
-                    const whyWrong = structured?.mistake.whyWrong?.trim() || item.analysis || "";
-                    const fixSuggestion = structured?.mistake.fixSuggestion?.trim() || "";
+                    const whyWrong = structured?.mistake.whyWrong?.trim() || "";
                     const confirmedCause = structured?.rootCause.confirmedCause?.trim() || "";
+                    const fontSizeHint = structured?.problem.fontSizeHint || "normal";
+                    const originalImageWidthClass = fontSizeHint === "large"
+                        ? "w-[60%]"
+                        : fontSizeHint === "small"
+                            ? "w-[90%]"
+                            : "w-[80%]";
 
                     return (
                         <div
                             key={item.id}
-                            className="mb-8 pb-8 border-b last:border-b-0 print:break-inside-avoid"
+                            className="mb-2 pb-2 border-b last:border-b-0 print:break-inside-avoid print:mb-1 print:pb-1"
                         >
-                            <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-start justify-between mb-1">
                                 <div className="flex items-center gap-3">
                                     <span className="text-lg font-bold">
-                                        {t.printPreview?.questionNumber?.replace("{num}", String(index + 1)) || `题目 ${index + 1}`}
+                                        {item.questionNo ? `题号：${item.questionNo}` : (t.printPreview?.questionNumber?.replace("{num}", String(index + 1)) || `题目 ${index + 1}`)}
                                     </span>
                                     {item.subject && (
                                         <span className="text-sm text-muted-foreground">{item.subject.name}</span>
@@ -212,14 +223,14 @@ function PrintPreviewContent() {
                             </div>
 
                             {printMode === "review" ? (
-                                <div className="grid gap-4 print:grid-cols-[40%_30%_30%]">
-                                    <section className="h-full rounded-md border p-3">
-                                        <h3 className="mb-3 font-semibold">原题</h3>
+                                <div className="grid gap-4 md:grid-cols-[50%_50%] print:grid-cols-[50%_50%]">
+                                    <section className="h-full rounded-md border p-2.5 print:p-2">
+                                        <h3 className="mb-2 text-base font-semibold leading-tight">原题</h3>
                                         {item.originalImageUrl ? (
                                             <img
                                                 src={item.originalImageUrl}
                                                 alt={t.detail?.originalProblem || "原题"}
-                                                className="h-auto w-full rounded border object-contain"
+                                                className={`h-auto ${originalImageWidthClass} max-w-full rounded border object-contain`}
                                             />
                                         ) : item.questionText ? (
                                             <MarkdownRenderer content={item.questionText} />
@@ -227,91 +238,67 @@ function PrintPreviewContent() {
                                             <div className="min-h-[280px] rounded border border-dashed bg-muted/20" />
                                         )}
 
-                                        {tags.length > 0 && (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {tags.map((tag) => (
-                                                    <span key={tag} className="rounded bg-muted px-2 py-0.5 text-xs">
-                                                        {tag}
-                                                    </span>
-                                                ))}
+                                        {whyWrong && (
+                                            <div className="mt-2 border-t pt-2">
+                                                <div className="inline-field">
+                                                    <span className="inline-field-label">错误定位：</span>
+                                                    <MarkdownRenderer content={whyWrong} className="inline-field-content" />
+                                                </div>
                                             </div>
                                         )}
                                     </section>
 
-                                    <section className="h-full rounded-md border p-3">
-                                        <h3 className="mb-3 font-semibold">G 标准解法</h3>
-                                        <div className="space-y-3">
+                                    <section className="h-full rounded-md border p-2.5 print:p-2">
+                                        <h3 className="mb-2 text-base font-semibold leading-tight">标准解法</h3>
+                                        <div className="space-y-2">
                                             <div>
-                                                <div className="mb-1 text-sm font-medium text-muted-foreground">标准答案</div>
-                                                {solutionFinalAnswer ? (
-                                                    <MarkdownRenderer content={solutionFinalAnswer} />
-                                                ) : (
-                                                    <div className="text-sm text-muted-foreground">暂无</div>
-                                                )}
+                                                <div className="inline-field">
+                                                    <span className="inline-field-label text-muted-foreground">标准答案：</span>
+                                                    {solutionFinalAnswer ? (
+                                                        <MarkdownRenderer content={solutionFinalAnswer} className="inline-field-content" />
+                                                    ) : (
+                                                        <span className="text-sm text-muted-foreground">暂无</span>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div>
                                                 <div className="mb-1 text-sm font-medium text-muted-foreground">分步解法</div>
                                                 {solutionSteps.length > 0 ? (
-                                                    <MarkdownRenderer content={buildStepsMarkdown(solutionSteps)} />
-                                                ) : (
-                                                    <div className="text-sm text-muted-foreground">暂无</div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </section>
-
-                                    <section className="h-full rounded-md border p-3">
-                                        <h3 className="mb-3 font-semibold">H 错误定位</h3>
-                                        <div className="space-y-3">
-                                            <div>
-                                                <div className="mb-1 text-sm font-medium text-muted-foreground">学生步骤</div>
-                                                {mistakeStudentSteps.length > 0 ? (
-                                                    <MarkdownRenderer content={buildStepsMarkdown(mistakeStudentSteps)} />
-                                                ) : (
-                                                    <div className="text-sm text-muted-foreground">暂无</div>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <div className="mb-1 text-sm font-medium text-muted-foreground">错误步骤序号</div>
-                                                <div className="text-sm">{wrongStepIndex}</div>
-                                            </div>
-                                            <div>
-                                                <div className="mb-1 text-sm font-medium text-muted-foreground">为什么错</div>
-                                                {whyWrong ? (
-                                                    <MarkdownRenderer content={whyWrong} />
-                                                ) : (
-                                                    <div className="text-sm text-muted-foreground">暂无</div>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <div className="mb-1 text-sm font-medium text-muted-foreground">如何改</div>
-                                                {fixSuggestion ? (
-                                                    <MarkdownRenderer content={fixSuggestion} />
+                                                    <MarkdownRenderer
+                                                        content={buildStepsMarkdown(solutionSteps)}
+                                                        className="solution-steps-markdown"
+                                                    />
                                                 ) : (
                                                     <div className="text-sm text-muted-foreground">暂无</div>
                                                 )}
                                             </div>
                                         </div>
 
-                                        <div className="mt-4 border-t pt-3">
-                                            <h4 className="mb-1 font-semibold">I 根因</h4>
+                                        <div className="mt-2 border-t pt-2">
                                             {confirmedCause ? (
-                                                <MarkdownRenderer content={confirmedCause} />
+                                                <div className="inline-field">
+                                                    <span className="inline-field-label">根因：</span>
+                                                    <MarkdownRenderer content={confirmedCause} className="inline-field-content" />
+                                                </div>
                                             ) : (
-                                                <div className="text-sm text-muted-foreground">暂无</div>
+                                                <div className="inline-field">
+                                                    <span className="inline-field-label">根因：</span>
+                                                    <span className="text-sm text-muted-foreground">暂无</span>
+                                                </div>
                                             )}
                                         </div>
                                     </section>
+
                                 </div>
                             ) : (
-                                <div className="grid gap-4 print:grid-cols-[40%_60%]">
-                                    <section className="h-full rounded-md border p-3">
+                                <div className="grid gap-4 md:grid-cols-[40%_60%] print:grid-cols-[40%_60%]">
+                                    <section className="h-full rounded-md border p-3 print:p-2">
                                         <h3 className="mb-3 font-semibold">原题</h3>
                                         {item.originalImageUrl ? (
                                             <img
                                                 src={item.originalImageUrl}
                                                 alt={t.detail?.originalProblem || "原题"}
-                                                className="h-auto w-full rounded border object-contain"
+                                                className={`h-auto ${originalImageWidthClass} max-w-full rounded border object-contain`}
                                             />
                                         ) : item.questionText ? (
                                             <MarkdownRenderer content={item.questionText} />
@@ -341,8 +328,75 @@ export default function PrintPreviewPage() {
     const { t } = useLanguage();
 
     return (
-        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">{t.common.loading}</div>}>
-            <PrintPreviewContent />
-        </Suspense>
+        <>
+            <style jsx global>{`
+                @media print {
+                    @page {
+                        size: A4 portrait;
+                        margin: 0;
+                    }
+
+                    .print-sheet {
+                        font-size: 11.5px;
+                        line-height: 1.25;
+                    }
+
+                    .print-sheet .markdown-content p {
+                        margin-bottom: 0.2rem;
+                        line-height: 1.25;
+                    }
+
+                    .print-sheet .markdown-content ol,
+                    .print-sheet .markdown-content ul {
+                        margin-bottom: 0.2rem;
+                    }
+
+                    .print-sheet .katex {
+                        font-size: 0.95em;
+                    }
+                }
+
+                .inline-field {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 0.25rem;
+                    line-height: 1.25;
+                }
+
+                .inline-field-label {
+                    font-weight: 600;
+                    white-space: nowrap;
+                }
+
+                .inline-field-content {
+                    min-width: 0;
+                }
+
+                .inline-field-content p {
+                    display: inline;
+                    margin: 0;
+                }
+
+                .solution-steps-markdown ol {
+                    list-style-position: outside;
+                    padding-left: 1.1rem;
+                    margin: 0;
+                }
+
+                .solution-steps-markdown li {
+                    margin-left: 0;
+                    margin-bottom: 0.15rem;
+                    line-height: 1.2;
+                }
+
+                .solution-steps-markdown li > p {
+                    display: inline;
+                    margin: 0;
+                }
+            `}</style>
+            <Suspense fallback={<div className="min-h-screen flex items-center justify-center">{t.common.loading}</div>}>
+                <PrintPreviewContent />
+            </Suspense>
+        </>
     );
 }

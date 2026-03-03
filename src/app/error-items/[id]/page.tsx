@@ -25,6 +25,7 @@ interface KnowledgeTag {
 
 interface ErrorItemDetail {
     id: string;
+    questionNo: string;
     questionText: string;
     answerText: string;
     analysis: string;
@@ -528,7 +529,7 @@ export default function ErrorDetailPage() {
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
-                                    <CardTitle>{t.detail.question}</CardTitle>
+                                    <CardTitle>{`题号：${item.questionNo}`}</CardTitle>
                                     {!isEditingQuestion && (
                                         <Button
                                             variant="ghost"

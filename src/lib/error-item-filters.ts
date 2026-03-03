@@ -37,6 +37,7 @@ export function buildErrorItemWhereClause(filters: ErrorItemFilterInput): Prisma
     if (query) {
         andConditions.push({
             OR: [
+                { questionNo: { startsWith: query } },
                 { questionText: { contains: query } },
                 { analysis: { contains: query } },
                 { knowledgePoints: { contains: query } },

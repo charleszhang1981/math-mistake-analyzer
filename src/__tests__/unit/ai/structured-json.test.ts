@@ -10,6 +10,7 @@ describe("structured-json", () => {
             questionText: "Solve equation x + 2 = 5",
             answerText: "x = 3",
             analysis: "Legacy analysis text",
+            fontSizeHint: "large",
             solutionFinalAnswer: "x = 3",
             solutionSteps: ["Subtract 2 on both sides", "x = 3"],
             mistakeStudentSteps: ["x + 2 = 5", "x = 5"],
@@ -25,6 +26,7 @@ describe("structured-json", () => {
         expect(result?.mistake.wrongStepIndex).toBe(1);
         expect(result?.mistake.whyWrong).toBe("Forgot to subtract 2.");
         expect(result?.mistake.fixSuggestion).toBe("Apply the same operation to both sides.");
+        expect(result?.problem.fontSizeHint).toBe("large");
     });
 
     it("builds structuredJson v2 from parsed question fields", () => {
@@ -38,6 +40,7 @@ describe("structured-json", () => {
         expect(result?.version).toBe("v2");
         expect(result?.problem.topic).toBe("equation");
         expect(result?.problem.question_markdown).toBe("Solve equation x + 2 = 5");
+        expect(result?.problem.fontSizeHint).toBe("normal");
         expect(result?.student.final_answer_markdown).toBe("x = 3");
         expect(result?.student.steps).toEqual(["Step 1: move constant", "Step 2: simplify"]);
         expect(result?.knowledge.tags).toEqual([]);

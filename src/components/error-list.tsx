@@ -107,6 +107,9 @@ function buildListQueryParams(
 export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const { t } = useLanguage();
     const router = useRouter();
+    const searchPlaceholder = (t.notebook.search || "").toLowerCase().includes("search")
+        ? "Search question no., questions or tags..."
+        : "搜索题号、题目或知识点...";
 
     const [items, setItems] = useState<ErrorItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -362,7 +365,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder={t.notebook.search}
+                                placeholder={searchPlaceholder}
                                 className="pl-9"
                                 value={draftFilters.query}
                                 onChange={(e) => setDraftFilters((prev) => ({ ...prev, query: e.target.value }))}
@@ -571,7 +574,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 >
                                     <Card className="h-full cursor-pointer gap-2 pt-4 transition-colors hover:border-primary/50">
                                         <CardHeader className="pb-0">
-                                            <div className="flex items-start justify-between">
+                                            <div className="flex items-start justify-between gap-2">
                                                 <Badge
                                                     variant={item.masteryLevel > 0 ? "default" : "secondary"}
                                                     className={item.masteryLevel > 0 ? "bg-green-600 hover:bg-green-700" : ""}
@@ -586,6 +589,9 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                                         </span>
                                                     )}
                                                 </Badge>
+                                                <span className="truncate text-xs font-medium text-foreground/80">
+                                                    {`题号：${item.questionNo}`}
+                                                </span>
                                                 <span className="text-xs text-muted-foreground">
                                                     {format(new Date(item.createdAt), "MM/dd")}
                                                 </span>

@@ -90,15 +90,25 @@ export class OpenAIProvider implements AIService {
             .slice(0, 5);
     }
 
+    private parseFontSizeHint(raw: string | null): 'small' | 'normal' | 'large' {
+        const value = raw?.trim().toLowerCase();
+        if (value === 'small' || value === 'large' || value === 'normal') {
+            return value;
+        }
+        return 'normal';
+    }
+
     private parseExtractResponse(text: string): ImageExtractResult {
         const questionText = this.extractTag(text, "question_text");
         const requiresImageRaw = this.extractTag(text, "requires_image");
+        const fontSizeHintRaw = this.extractTag(text, "question_font_size_hint");
         const studentStepsRaw = this.extractTag(text, "student_steps_raw");
 
         const candidate: ImageExtractResult = {
             subject: '数学',
             questionText: questionText || '',
             requiresImage: requiresImageRaw?.toLowerCase().trim() === 'true',
+            fontSizeHint: this.parseFontSizeHint(fontSizeHintRaw),
             studentStepsRaw: this.parseStepList(studentStepsRaw),
         };
 
@@ -156,6 +166,7 @@ export class OpenAIProvider implements AIService {
             subject: '数学',
             knowledgePoints,
             requiresImage,
+            fontSizeHint: this.parseFontSizeHint(this.extractTag(text, "question_font_size_hint")),
             solutionFinalAnswer: this.extractTag(text, "solution_final_answer") || undefined,
             solutionSteps: this.parseStepList(this.extractTag(text, "solution_steps")),
             mistakeStudentSteps: this.parseStepList(this.extractTag(text, "mistake_student_steps")),
@@ -189,8 +200,9 @@ export class OpenAIProvider implements AIService {
         mimeType: string = "image/jpeg",
         language: 'zh' | 'en' = 'zh',
         grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
-        _subject?: string | null
+        subject?: string | null
     ): Promise<ParsedQuestion> {
+        void subject;
         const stageStart = Date.now();
         const models = this.getStageModels();
         const limits = this.getTokenLimits();
@@ -300,6 +312,7 @@ export class OpenAIProvider implements AIService {
             subject: '数学',
             knowledgePoints: reason.knowledgePoints,
             requiresImage: extract.requiresImage,
+            fontSizeHint: extract.fontSizeHint,
             solutionFinalAnswer: reason.solutionFinalAnswer,
             solutionSteps: reason.solutionSteps,
             mistakeStudentSteps: reason.mistakeStudentSteps?.length
@@ -362,7 +375,14 @@ export class OpenAIProvider implements AIService {
         const prompt = generateReanswerPrompt(language, questionText, subject);
 
         try {
-            let userContent: any = "Please provide answer and analysis based on the question.";
+            type OpenAIUserContent =
+                | string
+                | Array<
+                    | { type: "text"; text: string }
+                    | { type: "image_url"; image_url: { url: string } }
+                >;
+
+            let userContent: OpenAIUserContent = "Please provide answer and analysis based on the question.";
             if (imageBase64) {
                 const imageUrl = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
                 userContent = [

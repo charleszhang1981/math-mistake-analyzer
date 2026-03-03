@@ -46,6 +46,7 @@ export interface Notebook {
 
 export interface ErrorItem {
     id: string;
+    questionNo: string;
     userId: string;
     subjectId?: string | null;
     subject?: Notebook | null;

@@ -156,6 +156,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
             questionText: data.questionText,
             answerText: solutionFinalAnswer.trim() || data.answerText,
             analysis: data.analysis,
+            fontSizeHint: previousStructured?.problem.fontSizeHint,
             solutionFinalAnswer: solutionFinalAnswer.trim(),
             solutionSteps: textToLines(solutionStepsText),
             mistakeStudentSteps: textToLines(mistakeStudentStepsText),
@@ -221,10 +222,12 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 { timeout: aiTimeout || 180000 }
             );
 
+            const previousStructured = normalizeStructuredQuestionJson(data.structuredJson) ?? initialStructured;
             const nextStructured = buildStructuredQuestionJson({
                 questionText: data.questionText,
                 answerText: result.answerText,
                 analysis: result.analysis,
+                fontSizeHint: previousStructured?.problem.fontSizeHint,
                 solutionFinalAnswer: result.answerText,
             });
 

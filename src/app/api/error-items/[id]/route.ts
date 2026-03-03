@@ -136,10 +136,12 @@ export async function PUT(
         if (normalizedStructuredJson !== null) {
             updateData.structuredJson = normalizedStructuredJson;
         } else if (structuredJson === undefined) {
+            const existingStructured = normalizeStructuredQuestionJson(errorItem.structuredJson);
             const fallbackStructuredJson = buildStructuredQuestionJson({
                 questionText: questionText !== undefined ? questionText : errorItem.questionText,
                 answerText: answerText !== undefined ? answerText : errorItem.answerText,
                 analysis: analysis !== undefined ? analysis : errorItem.analysis,
+                fontSizeHint: existingStructured?.problem.fontSizeHint,
             });
 
             if (fallbackStructuredJson) {
