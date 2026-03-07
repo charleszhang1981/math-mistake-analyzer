@@ -1,94 +1,70 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { BackButton } from "@/components/ui/back-button";
-import { House } from "lucide-react";
-import Link from "next/link";
-import { NotebookCard } from "@/components/notebook-card";
-
-import { Notebook } from "@/types/api";
 import { apiClient } from "@/lib/api-client";
-
 import { useLanguage } from "@/contexts/LanguageContext";
-
-// ... imports
+import { Notebook } from "@/types/api";
 
 export default function NotebooksPage() {
     const router = useRouter();
-    const { t } = useLanguage(); // Use hook
-    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { t } = useLanguage();
+    const [hasError, setHasError] = useState(false);
 
     useEffect(() => {
-        fetchNotebooks();
-    }, []);
+        let cancelled = false;
 
-    const fetchNotebooks = async () => {
-        try {
-            const data = await apiClient.get<Notebook[]>("/api/notebooks");
-            setNotebooks(data);
-        } catch (error) {
-            console.error("Failed to fetch notebooks:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        const openOnlyNotebook = async () => {
+            try {
+                const notebooks = await apiClient.get<Notebook[]>("/api/notebooks");
+                const targetNotebook = notebooks[0];
 
-    const handleNotebookClick = (id: string) => {
-        router.push(`/notebooks/${id}`);
-    };
+                if (!targetNotebook) {
+                    if (!cancelled) {
+                        setHasError(true);
+                    }
+                    return;
+                }
 
-    if (loading) {
+                router.replace(`/notebooks/${targetNotebook.id}`);
+            } catch (error) {
+                console.error("Failed to resolve default notebook:", error);
+                if (!cancelled) {
+                    setHasError(true);
+                }
+            }
+        };
+
+        void openOnlyNotebook();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [router]);
+
+    if (hasError) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <p className="text-muted-foreground">{t.common.loading}</p>
-            </div>
+            <main className="min-h-screen bg-background p-6">
+                <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center gap-4 text-center">
+                    <h1 className="text-2xl font-bold">{t.notebooks?.title || "My Notebook"}</h1>
+                    <p className="text-sm text-muted-foreground">
+                        {t.common?.messages?.loadFailed || "Failed to open notebook"}
+                    </p>
+                    <Link href="/">
+                        <Button>{t.common?.back || "Back"}</Button>
+                    </Link>
+                </div>
+            </main>
         );
     }
 
     return (
-        <main className="min-h-screen p-4 md:p-8 bg-background">
-            <div className="max-w-6xl mx-auto space-y-8">
-                <div className="flex items-start gap-4">
-                    <BackButton fallbackUrl="/" />
-                    <div className="flex-1 space-y-1">
-                        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t.notebooks?.title || "My Notebooks"}</h1>
-                        <p className="text-muted-foreground text-sm sm:text-base">
-                            {t.notebooks?.subtitle || "Manage your mistakes by subject"}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                        <Link href="/">
-                            <Button variant="ghost" size="icon">
-                                <House className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-
-                {notebooks.length === 0 ? (
-                    <div className="text-center py-12 border-2 border-dashed rounded-lg">
-                        <p className="text-muted-foreground mb-4">
-                            {t.notebooks?.empty || "No notebooks found."}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {notebooks.map((notebook) => (
-                            <NotebookCard
-                                key={notebook.id}
-                                id={notebook.id}
-                                name={notebook.name}
-                                errorCount={notebook._count?.errorItems || 0}
-                                onClick={() => handleNotebookClick(notebook.id)}
-                                itemLabel={t.notebooks?.items || "items"}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div >
-        </main >
+        <main className="min-h-screen bg-background p-6">
+            <div className="mx-auto flex min-h-[60vh] max-w-xl items-center justify-center text-sm text-muted-foreground">
+                {t.common.loading}
+            </div>
+        </main>
     );
 }

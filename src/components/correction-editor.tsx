@@ -12,6 +12,7 @@ import { Save, RefreshCw, Loader2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { frontendLogger } from "@/lib/frontend-logger";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { CompactNumberedSteps } from "@/components/compact-numbered-steps";
 import { TagInput } from "@/components/tag-input";
 import { NotebookSelector } from "@/components/notebook-selector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -24,6 +25,7 @@ import {
     normalizeStructuredQuestionJson,
     type StructuredQuestionJson,
 } from "@/lib/ai/structured-json";
+import { resolveReanswerMistakeFields } from "@/lib/reanswer-utils";
 
 interface ParsedQuestionWithSubject extends ParsedQuestion {
     subjectId?: string;
@@ -66,12 +68,6 @@ function toNullableInt(value: string): number | null {
     const parsed = Number.parseInt(trimmed, 10);
     if (Number.isNaN(parsed) || parsed <= 0) return null;
     return parsed;
-}
-
-function buildSolutionMarkdown(stepsText: string): string {
-    const lines = textToLines(stepsText);
-    if (lines.length === 0) return "";
-    return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
 }
 
 function normalizeStepDisplayLine(line: string): string {
@@ -117,6 +113,12 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
         () => normalizeStructuredQuestionJson(initialData.structuredJson) ?? buildStructuredQuestionJson(initialData),
         [initialData]
     );
+    const initialSolutionSteps = initialStructured?.solution.steps?.length
+        ? initialStructured.solution.steps
+        : (initialData.solutionSteps ?? []);
+    const initialMistakeStudentSteps = initialStructured?.mistake.studentSteps?.length
+        ? initialStructured.mistake.studentSteps
+        : (initialData.mistakeStudentSteps ?? []);
 
     const [data, setData] = useState<ParsedQuestionWithSubject>({
         ...initialData,
@@ -137,12 +139,8 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
 
     const [solutionFinalAnswer, setSolutionFinalAnswer] = useState(initialStructured?.solution.finalAnswer || initialData.answerText || "");
-    const [solutionStepsText, setSolutionStepsText] = useState(
-        linesToText(initialStructured?.solution.steps?.length ? initialStructured.solution.steps : initialStructured?.student.steps)
-    );
-    const [mistakeStudentStepsText, setMistakeStudentStepsText] = useState(
-        linesToText(initialStructured?.mistake.studentSteps?.length ? initialStructured.mistake.studentSteps : initialStructured?.student.steps)
-    );
+    const [solutionStepsText, setSolutionStepsText] = useState(linesToText(initialSolutionSteps));
+    const [mistakeStudentStepsText, setMistakeStudentStepsText] = useState(linesToText(initialMistakeStudentSteps));
     const [mistakeWrongStepIndex, setMistakeWrongStepIndex] = useState(toOneBasedIndex(initialStructured?.mistake.wrongStepIndex));
     const [mistakeWhyWrong, setMistakeWhyWrong] = useState(initialStructured?.mistake.whyWrong || "");
     const [mistakeFixSuggestion, setMistakeFixSuggestion] = useState(initialStructured?.mistake.fixSuggestion || "");
@@ -238,6 +236,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
             );
 
             const previousStructured = normalizeStructuredQuestionJson(data.structuredJson) ?? initialStructured;
+            const resolvedMistake = resolveReanswerMistakeFields(previousStructured, result);
             const nextStructured = buildStructuredQuestionJson({
                 questionText: data.questionText,
                 answerText: result.answerText,
@@ -245,10 +244,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 fontSizeHint: previousStructured?.problem.fontSizeHint,
                 solutionFinalAnswer: result.solutionFinalAnswer?.trim() || result.answerText,
                 solutionSteps: result.solutionSteps,
-                mistakeStudentSteps: result.mistakeStudentSteps,
-                mistakeWrongStepIndex: result.mistakeWrongStepIndex ?? null,
-                mistakeWhyWrong: result.mistakeWhyWrong,
-                mistakeFixSuggestion: result.mistakeFixSuggestion,
+                mistakeStudentSteps: resolvedMistake.mistakeStudentSteps,
+                mistakeWrongStepIndex: resolvedMistake.mistakeWrongStepIndex,
+                mistakeWhyWrong: resolvedMistake.mistakeWhyWrong,
+                mistakeFixSuggestion: resolvedMistake.mistakeFixSuggestion,
             });
 
             const mergedStructured = nextStructured
@@ -269,10 +268,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 knowledgePoints: result.knowledgePoints?.length ? result.knowledgePoints : prev.knowledgePoints,
                 solutionFinalAnswer: result.solutionFinalAnswer,
                 solutionSteps: result.solutionSteps,
-                mistakeStudentSteps: result.mistakeStudentSteps,
-                mistakeWrongStepIndex: result.mistakeWrongStepIndex,
-                mistakeWhyWrong: result.mistakeWhyWrong,
-                mistakeFixSuggestion: result.mistakeFixSuggestion,
+                mistakeStudentSteps: resolvedMistake.mistakeStudentSteps,
+                mistakeWrongStepIndex: resolvedMistake.mistakeWrongStepIndex,
+                mistakeWhyWrong: resolvedMistake.mistakeWhyWrong,
+                mistakeFixSuggestion: resolvedMistake.mistakeFixSuggestion,
                 structuredJson: mergedStructured,
             }));
 
@@ -323,9 +322,18 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                             setIsSaving(true);
                             try {
                                 const structuredJson = buildStructuredForSave();
+                                const solutionSteps = textToLines(solutionStepsText);
+                                const mistakeStudentSteps = textToLines(mistakeStudentStepsText);
+                                const mistakeWrongStepIndexValue = toNullableInt(mistakeWrongStepIndex);
                                 await onSave({
                                     ...data,
                                     answerText: solutionFinalAnswer.trim() || data.answerText,
+                                    solutionFinalAnswer: solutionFinalAnswer.trim(),
+                                    solutionSteps,
+                                    mistakeStudentSteps,
+                                    mistakeWrongStepIndex: mistakeWrongStepIndexValue,
+                                    mistakeWhyWrong: mistakeWhyWrong.trim(),
+                                    mistakeFixSuggestion: mistakeFixSuggestion.trim(),
                                     structuredJson,
                                 });
                             } finally {
@@ -502,7 +510,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     />
                                 ) : (
                                     <div className="min-h-[220px] rounded-md border bg-muted/20 p-3">
-                                        <MarkdownRenderer content={buildSolutionMarkdown(solutionStepsText)} />
+                                        <CompactNumberedSteps
+                                            steps={textToLines(solutionStepsText)}
+                                            normalizeStep={normalizeMathLine}
+                                        />
                                     </div>
                                 )}
                             </div>
@@ -572,16 +583,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                         <div className="space-y-2">
                                             <Label>{t.editor.studentSteps || "Student Steps"}</Label>
                                             <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
-                                                <div className="space-y-2">
-                                                    {textToLines(mistakeStudentStepsText).map((line, idx) => (
-                                                        <div key={`mistake-step-${idx}`} className="flex items-start gap-2">
-                                                            <span className="w-6 shrink-0 font-medium">{idx + 1}.</span>
-                                                            <div className="min-w-0 flex-1">
-                                                                <MarkdownRenderer content={normalizeMathLine(normalizeStepDisplayLine(line))} />
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                                <CompactNumberedSteps
+                                                    steps={textToLines(mistakeStudentStepsText)}
+                                                    normalizeStep={(line) => normalizeMathLine(normalizeStepDisplayLine(line))}
+                                                />
                                             </div>
                                         </div>
 

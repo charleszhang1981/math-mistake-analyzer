@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
+import { CompactNumberedSteps } from "@/components/compact-numbered-steps";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { apiClient } from "@/lib/api-client";
 import { normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
@@ -12,10 +13,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { ErrorItem, PaginatedResponse } from "@/types/api";
 
 type PrintMode = "review" | "redo";
-
-function buildStepsMarkdown(steps: string[]): string {
-    return steps.map((step, index) => `${index + 1}. ${normalizeStepLine(step)}`).join("\n");
-}
 
 function normalizeStepLine(step: string): string {
     const trimmed = step.trim();
@@ -44,6 +41,8 @@ function normalizeStepLine(step: string): string {
 function PrintPreviewContent() {
     const searchParams = useSearchParams();
     const { t } = useLanguage();
+    const subjectId = searchParams.get("subjectId");
+    const notebookFallbackUrl = subjectId ? `/notebooks/${subjectId}` : "/notebooks";
 
     const [items, setItems] = useState<ErrorItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -94,7 +93,7 @@ function PrintPreviewContent() {
             <div className="print:hidden sticky top-0 z-10 bg-background border-b p-3 sm:p-4 shadow-sm">
                 <div className="max-w-6xl mx-auto space-y-3">
                     <div className="flex items-center gap-3">
-                        <BackButton fallbackUrl="/notebooks" />
+                        <BackButton fallbackUrl={notebookFallbackUrl} />
                         <h1 className="text-lg sm:text-xl font-bold flex-1">
                             {t.printPreview?.title || "打印预览"} ({items.length} {t.notebooks?.items || "题目"})
                         </h1>
@@ -264,9 +263,12 @@ function PrintPreviewContent() {
                                             <div>
                                                 <div className="mb-1 text-sm font-medium text-muted-foreground">分步解法</div>
                                                 {solutionSteps.length > 0 ? (
-                                                    <MarkdownRenderer
-                                                        content={buildStepsMarkdown(solutionSteps)}
-                                                        className="solution-steps-markdown"
+                                                    <CompactNumberedSteps
+                                                        steps={solutionSteps}
+                                                        normalizeStep={normalizeStepLine}
+                                                        className="text-sm"
+                                                        itemClassName="gap-1.5 leading-tight"
+                                                        markerClassName="w-5"
                                                     />
                                                 ) : (
                                                     <div className="text-sm text-muted-foreground">暂无</div>
@@ -377,22 +379,6 @@ export default function PrintPreviewPage() {
                     margin: 0;
                 }
 
-                .solution-steps-markdown ol {
-                    list-style-position: outside;
-                    padding-left: 1.1rem;
-                    margin: 0;
-                }
-
-                .solution-steps-markdown li {
-                    margin-left: 0;
-                    margin-bottom: 0.15rem;
-                    line-height: 1.2;
-                }
-
-                .solution-steps-markdown li > p {
-                    display: inline;
-                    margin: 0;
-                }
             `}</style>
             <Suspense fallback={<div className="min-h-screen flex items-center justify-center">{t.common.loading}</div>}>
                 <PrintPreviewContent />

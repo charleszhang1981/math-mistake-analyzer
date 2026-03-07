@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -13,11 +13,19 @@ interface TagInputProps {
     placeholder?: string;
     className?: string;
     enterHint?: string;
-    subject?: string; // 新增：用于过滤标签建议的学科
-    gradeStage?: string; // 新增：用于过滤标签建议的学段 (primary, junior_high, senior_high)
+    subject?: string;
+    gradeStage?: string;
 }
 
-export function TagInput({ value = [], onChange, placeholder = "Enter tags...", className = "", enterHint, subject, gradeStage }: TagInputProps) {
+export function TagInput({
+    value = [],
+    onChange,
+    placeholder = "Enter tags...",
+    className = "",
+    enterHint,
+    subject,
+    gradeStage,
+}: TagInputProps) {
     const [input, setInput] = useState("");
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -25,41 +33,44 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
     const inputRef = useRef<HTMLInputElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
 
-    // 获取标签建议
     useEffect(() => {
-        if (input.trim()) {
-            fetchSuggestions(input);
-        } else {
-            setSuggestions([]);
-            setShowSuggestions(false);
+        if (!input.trim()) {
+            return;
         }
-    }, [input, subject, gradeStage]);
 
-    const fetchSuggestions = async (query: string) => {
-        try {
-            // 从服务器获取标签建议（现在从数据库查询）
-            const params = new URLSearchParams({ q: query });
-            if (subject) {
-                params.append('subject', subject);
+        let cancelled = false;
+
+        const fetchSuggestions = async () => {
+            try {
+                const params = new URLSearchParams({ q: input });
+                if (subject) {
+                    params.append("subject", subject);
+                }
+                if (gradeStage) {
+                    params.append("stage", gradeStage);
+                }
+
+                const data = await apiClient.get<TagSuggestionsResponse>(`/api/tags/suggestions?${params.toString()}`);
+                if (cancelled) return;
+
+                const filtered = (data.suggestions || []).filter((tag) => !value.includes(tag));
+                setSuggestions(filtered.slice(0, 20));
+                setShowSuggestions(filtered.length > 0);
+                setSelectedIndex(0);
+            } catch {
+                if (cancelled) return;
+                setSuggestions([]);
+                setShowSuggestions(false);
+                setSelectedIndex(0);
             }
-            if (gradeStage) {
-                params.append('stage', gradeStage);
-            }
-            const data = await apiClient.get<TagSuggestionsResponse>(`/api/tags/suggestions?${params.toString()}`);
-            const serverSuggestions = data.suggestions || [];
+        };
 
-            // 过滤已选中的标签
-            const filtered = serverSuggestions.filter(
-                (tag) => !value.includes(tag)
-            );
+        void fetchSuggestions();
 
-            setSuggestions(filtered.slice(0, 20));
-            setShowSuggestions(filtered.length > 0);
-            setSelectedIndex(0);
-        } catch (error) {
-            console.error("Failed to fetch suggestions:", error);
-        }
-    };
+        return () => {
+            cancelled = true;
+        };
+    }, [gradeStage, input, subject, value]);
 
     const addTag = (tag: string) => {
         if (tag.trim() && !value.includes(tag.trim())) {
@@ -73,6 +84,15 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
 
     const removeTag = (tagToRemove: string) => {
         onChange(value.filter((tag) => tag !== tagToRemove));
+    };
+
+    const handleInputChange = (nextValue: string) => {
+        setInput(nextValue);
+        if (!nextValue.trim()) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            setSelectedIndex(0);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -97,7 +117,6 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
         }
     };
 
-    // 点击外部关闭建议列表
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (
@@ -115,27 +134,25 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
 
     return (
         <div className={`relative ${className}`}>
-            {/* 标签显示区域 */}
-            <div className="flex flex-wrap gap-2 p-2 border rounded-lg bg-background min-h-[42px]">
+            <div className="flex min-h-[42px] flex-wrap gap-2 rounded-lg border bg-background p-2">
                 {value.map((tag) => (
                     <Badge key={tag} variant="secondary" className="flex items-center gap-1 px-2 py-1">
                         {tag}
                         <button
                             type="button"
                             onClick={() => removeTag(tag)}
-                            className="hover:text-destructive ml-1"
+                            className="ml-1 hover:text-destructive"
                         >
                             <X className="h-3 w-3" />
                         </button>
                     </Badge>
                 ))}
 
-                {/* 输入框 */}
                 <Input
                     ref={inputRef}
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => handleInputChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={() => {
                         if (suggestions.length > 0) {
@@ -143,21 +160,19 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
                         }
                     }}
                     placeholder={value.length === 0 ? placeholder : ""}
-                    className="flex-1 min-w-[120px] border-none focus-visible:ring-0 focus-visible:ring-offset-0 h-8 px-0"
+                    className="h-8 min-w-[120px] flex-1 border-none px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
             </div>
 
-            {/* 建议列表 */}
             {showSuggestions && suggestions.length > 0 && (
                 <div
                     ref={suggestionsRef}
-                    className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto"
+                    className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover shadow-md"
                 >
                     {suggestions.map((suggestion, index) => (
                         <div
                             key={suggestion}
-                            className={`px-3 py-2 cursor-pointer hover:bg-accent ${index === selectedIndex ? "bg-accent" : ""
-                                }`}
+                            className={`cursor-pointer px-3 py-2 hover:bg-accent ${index === selectedIndex ? "bg-accent" : ""}`}
                             onClick={() => addTag(suggestion)}
                             onMouseEnter={() => setSelectedIndex(index)}
                         >
@@ -167,9 +182,8 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
                 </div>
             )}
 
-            {/* 提示文本 */}
             {input && !showSuggestions && (
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="mt-1 text-xs text-muted-foreground">
                     {enterHint ? `${enterHint} "${input}"` : `Press Enter to create "${input}"`}
                 </div>
             )}

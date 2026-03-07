@@ -55,6 +55,12 @@ export async function POST(req: Request) {
             questionText,
             answerText,
             analysis,
+            solutionFinalAnswer,
+            solutionSteps,
+            mistakeStudentSteps,
+            mistakeWrongStepIndex,
+            mistakeWhyWrong,
+            mistakeFixSuggestion,
             knowledgePoints,
             originalImageUrl,
             rawImageKey,
@@ -189,7 +195,17 @@ export async function POST(req: Request) {
 
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson)
-            ?? buildStructuredQuestionJson({ questionText, answerText, analysis });
+            ?? buildStructuredQuestionJson({
+                questionText,
+                answerText,
+                analysis,
+                solutionFinalAnswer,
+                solutionSteps,
+                mistakeStudentSteps,
+                mistakeWrongStepIndex,
+                mistakeWhyWrong,
+                mistakeFixSuggestion,
+            });
 
         // 创建错题记录
         try {

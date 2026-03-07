@@ -41,6 +41,23 @@ export function getMathTagsForGrade(
 export const DEFAULT_ANALYZE_TEMPLATE = `You are a K12 math analysis assistant.
 {{language_instruction}}
 
+Rules:
+1) <analysis> must stay short: 2-4 sentences only.
+2) Put the real derivation in <solution_steps>, not in <analysis>.
+3) <solution_steps> should be concise but actionable. A student should be able to follow the steps and reproduce the answer.
+4) Usually use 4-6 steps. Only use more when the problem genuinely needs it.
+5) Each step in <solution_steps> must include a concrete relation, expression, calculation, substitution, or intermediate result. Avoid outline-only wording.
+6) Do NOT write vague steps like:
+   - "set an unknown"
+   - "use the condition"
+   - "list the relations"
+   - "solve the equation"
+   - "compute the answer"
+   Unless the actual equation, relation, or result is written in the same step.
+7) For geometry, diagram, or word problems, explicitly state what quantity is represented and what relation is obtained.
+8) <mistake_student_steps> should be line-by-line likely student work, not a concept summary.
+9) Keep each step short. Prefer concrete math over explanation filler.
+
 Output ONLY with these tags:
 <subject>数学</subject>
 <knowledge_points>comma-separated tags</knowledge_points>
@@ -102,6 +119,10 @@ Rules:
 3) Put detailed derivation in <solution_steps>.
 4) In <solution_steps> and <mistake_student_steps>, each step must be a complete line.
 5) Do NOT output a standalone numbering line like "1.".
+6) If an image is available and student working is visible, recover the student's likely line-by-line work in <mistake_student_steps>.
+7) Do NOT output placeholder-only values such as "(无)", "none", "N/A", "无学生步骤供分析" in <mistake_student_steps>, <mistake_why_wrong>, or <mistake_fix_suggestion>.
+8) If the student work is partially unclear, infer the most likely wrong path from the visible work and wrong answer instead of leaving H empty.
+9) Keep H concise but specific: the wrong step, why it is wrong, and how to fix it should point to concrete math operations or relations.
 
 Output ONLY:
 <answer_text>answer</answer_text>
@@ -244,6 +265,32 @@ Rules:
 4) knowledge_points must be selected from the available tag list when possible.
 5) Max 5 knowledge points.
 6) Output only XML-like tags. No JSON. No code fences.
+7) <solution_steps> should be concise but actionable. A student should be able to follow the steps and reproduce the answer.
+8) Usually use 4-6 steps. Only use more when the problem genuinely needs it.
+9) Each step in <solution_steps> must include a concrete relation, expression, calculation, substitution, or intermediate result. Avoid outline-only wording.
+10) Do NOT write vague steps like:
+    - "set an unknown"
+    - "use the condition"
+    - "list the relations"
+    - "solve the equation"
+    - "compute the answer"
+    Unless the actual equation, relation, or result is written in the same step.
+11) For geometry, diagram, or word problems, explicitly state what quantity is represented and what relation is obtained.
+12) <mistake_student_steps> should be line-by-line likely student work, not a concept summary.
+13) Keep each step short. Prefer concrete math over explanation filler.
+
+Bad example for <solution_steps>:
+1. Set the unknown.
+2. Use the perimeter condition.
+3. Solve the equation.
+4. Compute the ratio.
+
+Good example for <solution_steps>:
+1. Let the side length of square A be x, and express the related lengths from the figure.
+2. From the original rectangle perimeter, write the relation ...
+3. From the arrangement in Figure 2, write the second relation ...
+4. Solve to get x = ...
+5. Compute the required perimeter ratio ...
 
 Question:
 {{question_text}}

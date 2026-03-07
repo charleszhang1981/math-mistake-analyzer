@@ -1,106 +1,124 @@
-# 04 Need Further Discussion (Post-MVP Backlog)
+# 仍需进一步讨论的问题（真实 backlog）
 
-This document records items intentionally excluded from MVP scope but requiring follow-up design and implementation decisions.
+> 更新时间：2026-03-06
+> 本文只保留当前代码中尚未定型、且会影响后续设计与实现方向的议题。
 
-## 1) Knowledge Tag System Governance
-**Current MVP behavior**
-- AI analysis uses a two-stage flow and receives a tag list from DB as prompt context.
-- If the model outputs unknown tags, backend auto-creates custom tags on save.
-- This works functionally but can cause inconsistent naming and fragmented taxonomy when the standard tag library is weak or empty.
+## 1. checker / diagnosis 是否重新进入主流程
 
-**Why deferred**
-- MVP prioritized end-to-end usability over strict taxonomy control.
+### 当前状态
 
-**Post-MVP direction**
-- Prepare a cold-start canonical math tag set.
-- Use subset retrieval (grade + semantic/top-N) instead of injecting the full list into prompt.
-- Add normalization (alias/synonym mapping) before persistence.
-- Optionally enforce strict mode: only allow tags from canonical list.
+- `math-checker` 已有一定规则能力
+- `checkerJson` / `diagnosisJson` schema 仍在
+- 但主保存链路、详情页、打印页、复习页并不依赖它们
 
-## 2) Checker and Diagnosis Reintroduction
-**Current MVP behavior**
-- Checker/Diagnosis generation and UI were disabled to reduce complexity and release risk.
-- Error analysis now relies on structured LLM output (G/H/I) and manual editing.
+### 需要决策的问题
 
-**Why deferred**
-- Existing checker/diagnosis logic had quality and reliability issues.
-- Hard to guarantee correctness across mixed question types in MVP timeline.
+- 哪些题型先进入 deterministic checker
+- checker 输出是作为只读辅助结果，还是正式入库字段
+- 与 `structuredJson v2` 如何分工，避免双主数据源
+- 什么时候才允许把 diagnosis 重新放回用户主视图
 
-**Post-MVP direction**
-- Reintroduce for limited checkable math types first (fraction arithmetic, linear equations).
-- Separate deterministic checker output from LLM explanation.
-- Add regression tests with labeled examples before enabling by default.
+## 2. 根因确认是否恢复聊天式交互
 
-## 3) Prompt Size and Tag Injection Cost
-**Current MVP behavior**
-- Available tags are injected into reason-stage prompt.
-- Long tag lists increase latency/token usage and may reduce output stability.
+### 当前状态
 
-**Why deferred**
-- Current scale is acceptable for MVP.
+- 根因聊天 API 当前统一返回 `410`
+- 详情页与编辑页使用手工填写 `rootCause.confirmedCause`
 
-**Post-MVP direction**
-- Add retrieval-based candidate narrowing (top 20-40 tags).
-- Cache candidate tags by grade/topic.
-- Track token and latency metrics per request for optimization.
+### 需要决策的问题
 
-## 4) Root Cause Assistance UX (LLM Dialogue vs Manual)
-**Current MVP behavior**
-- Root-cause section is manual-first (student enters final cause directly).
-- System hint is optional and non-blocking.
+- 是否重新启用引导式对话
+- 若重启，是嵌入式提示、侧栏对话，还是单独步骤
+- 如何防止聊天内容自动覆盖用户最终确认的根因
+- `chatSummary` 是否要继续保留
 
-**Why deferred**
-- Earlier side-panel dialogue version was not satisfactory and increased UX complexity.
+## 3. 标签治理与 prompt 成本
 
-**Post-MVP direction**
-- Evaluate a lightweight Socratic assistant with explicit "copy to final cause" flow.
-- Keep teacher/student control and avoid hidden auto-overwrite behavior.
+### 当前状态
 
-## 5) Legacy Data Compatibility Strategy
-**Current MVP behavior**
-- Some pages now assume structured JSON as primary source.
-- Backward compatibility with old/partial data was intentionally minimized during rapid iteration.
+- 标签会作为错题关系数据保存
+- AI 输出未知标签时允许自动创建
+- 数学标签候选当前来自数据库查询
 
-**Why deferred**
-- MVP dataset is mostly test data and can be reset if needed.
+### 需要决策的问题
 
-**Post-MVP direction**
-- Decide whether to keep hard cutover or add migration scripts.
-- If needed, provide one-time data backfill tools and compatibility checks.
+- 是否建立 canonical math tag 集
+- 是否做 alias / synonym 归一化
+- prompt 中标签候选是否要改成检索式缩减，而不是直接注入较大列表
+- 用户自定义标签与系统标签的边界如何定义
 
-## 6) Review and Practice Dependence on Cause Grouping
-**Current MVP behavior**
-- "Group by Cause" and cause-dependent review paths were disabled with checker/diagnosis removal.
+## 4. 复习分组逻辑是否继续按 tag
 
-**Why deferred**
-- Cause signals are not stable yet without reliable checker/diagnosis.
+### 当前状态
 
-**Post-MVP direction**
-- Re-enable after cause quality baseline is proven.
-- Consider fallback grouping by canonical knowledge tags when cause is missing.
+- 复习列表当前按 tag 分组
+- API 中 `cause` 固定返回 `"Uncategorized"`
 
-## 7) Deployment Hardening (Render and Supabase Ops)
-**Current MVP behavior**
-- Core flow runs on env-based config plus Supabase DB/Storage.
-- Some operational hardening remains manual.
+### 需要决策的问题
 
-**Why deferred**
-- Focus remained on feature correctness and UX.
+- 复习页是否继续按 tag 分组
+- 如果 checker/diagnosis 回归，是否切回按 cause 分组
+- 没有稳定 cause 时，tag 与 rootCause 哪个优先
 
-**Post-MVP direction**
-- Add deployment runbook, env validation checklist, and smoke tests.
-- Add observability for image upload/signing failures and AI timeout/quota behavior.
+## 5. `structuredJson v2` 与旧数据兼容策略
 
-## 8) Full i18n Completion (MVP keeps Chinese-only UI)
-**Current MVP decision**
-- MVP UI is Chinese-only by default, including buttons, filters, and prompts.
-- Some newer notebook/filter text is intentionally written directly in Chinese instead of adding full bilingual keys.
+### 当前状态
 
-**Why deferred**
-- Full i18n key coverage and consistency cleanup costs time but does not block MVP core flow.
-- Product priority is release speed and interaction quality, not bilingual polish.
+- 新链路已经以 `structuredJson v2` 为主
+- 仍保留一些 legacy 字段以兼容旧数据和旧页面
 
-**Post-MVP direction**
-- Normalize all newly added Chinese hard-coded strings into translation keys.
-- Complete and verify both `zh` and `en` namespaces for notebook/search/filter/batch actions.
-- Add a lightweight i18n regression checklist to prevent missing keys in future UI changes.
+### 需要决策的问题
+
+- 是否需要一次性数据回填脚本
+- 旧数据是否允许继续以 fallback 方式存在
+- 未来是否清理 `knowledgePoints` 这类兼容字段
+
+## 6. 文档与 UI 的中英一致性
+
+### 当前状态
+
+- 项目同时保留中英文结构
+- 但近期新增区域存在硬编码中文、历史乱码、未完整 i18n 化的问题
+
+### 需要决策的问题
+
+- 当前版本是否以中文为唯一正式产品语言
+- 是否继续维护英文界面完整度
+- 文案是否分阶段收敛，先修核心路径再修外围页面
+
+## 7. 部署与可观测性强化
+
+### 当前状态
+
+- 核心功能可运行
+- 有日志能力，但生产可观测性仍偏轻
+
+### 需要决策的问题
+
+- 是否补齐部署 runbook
+- 是否增加启动时 env 校验
+- 是否为 AI 超时、Storage 上传失败、签名 URL 失败增加专门告警
+- 是否建立最小 smoke test 集
+
+## 8. 多学科能力是否继续保留为“技术储备”
+
+### 当前状态
+
+- schema 和部分通用页面仍保留多学科扩展痕迹
+- 当前产品主路径已明确锁定数学
+
+### 需要决策的问题
+
+- 多学科结构是否继续保留不动
+- 是否在后续版本中进一步收缩 UI 与数据模型，减少误导
+- 若未来重启多学科，是否需要先拆分标签体系与 prompt 模板
+
+## 9. 当前已定案、不再放入讨论区的结论
+
+以下内容已经定案，不应再作为待讨论项反复出现：
+
+- 当前主路径锁定数学
+- 当前配置为 env-only
+- 当前根因聊天接口不可用
+- 当前主数据结构是 `structuredJson v2`
+- 当前复习调度规则为固定 `+1 / +3` 天

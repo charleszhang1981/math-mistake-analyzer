@@ -57,6 +57,14 @@ function isBucketNotFound(status: number, message: string): boolean {
     return normalized.includes('bucket') && normalized.includes('not found');
 }
 
+function isObjectNotFound(status: number, message: string): boolean {
+    if (status !== 400 && status !== 404) return false;
+    if (isBucketNotFound(status, message)) return false;
+
+    const normalized = message.toLowerCase();
+    return normalized.includes('not found') || normalized.includes('no such object');
+}
+
 function retryDelayMs(attempt: number): number {
     return BASE_RETRY_DELAY_MS * (attempt + 1);
 }
@@ -89,6 +97,17 @@ function setCachedSignedUrl(cacheKey: string, url: string, ttlMs: number): void 
             if (entry.expiresAt <= now) {
                 signedUrlCache.delete(key);
             }
+        }
+    }
+}
+
+function deleteCachedSignedUrls(bucket: string, keys: string[]): void {
+    if (keys.length === 0) return;
+
+    for (const cacheKey of signedUrlCache.keys()) {
+        const matches = keys.some((key) => cacheKey.startsWith(`${bucket}:${key}:`));
+        if (matches) {
+            signedUrlCache.delete(cacheKey);
         }
     }
 }
@@ -363,4 +382,84 @@ export async function createSignedObjectUrl(params: {
     }
 
     throw new Error('SUPABASE_STORAGE_SIGN_FAILED: Unexpected retry loop exit');
+}
+
+export async function deletePrivateObjects(params: {
+    keys: string[];
+}): Promise<void> {
+    const normalizedKeys = Array.from(
+        new Set(
+            params.keys
+                .map((key) => key.trim())
+                .filter((key) => key.length > 0)
+        )
+    );
+
+    if (normalizedKeys.length === 0) {
+        return;
+    }
+
+    const { supabaseUrl, serviceRoleKey, bucket } = getStorageConfig();
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+        let res: Response;
+        try {
+            res = await fetch(
+                `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}`,
+                {
+                    method: 'DELETE',
+                    headers: {
+                        apikey: serviceRoleKey,
+                        Authorization: `Bearer ${serviceRoleKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prefixes: normalizedKeys,
+                    }),
+                }
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const canRetry = attempt < MAX_RETRIES;
+            if (canRetry) {
+                const delayMs = retryDelayMs(attempt);
+                logger.warn(
+                    { keys: normalizedKeys, message, attempt: attempt + 1, delayMs },
+                    'Storage delete failed due to network error; retrying'
+                );
+                await wait(delayMs);
+                continue;
+            }
+            throw new Error(`SUPABASE_STORAGE_DELETE_FAILED: NETWORK_ERROR: ${message}`);
+        }
+
+        if (res.ok) {
+            deleteCachedSignedUrls(bucket, normalizedKeys);
+            return;
+        }
+
+        const message = await parseSupabaseError(res);
+        if (isObjectNotFound(res.status, message)) {
+            deleteCachedSignedUrls(bucket, normalizedKeys);
+            logger.info({ keys: normalizedKeys, status: res.status, message }, 'Storage objects already missing; treating delete as success');
+            return;
+        }
+
+        const retryable = shouldRetrySupabase(res.status, message);
+        const canRetry = retryable && attempt < MAX_RETRIES;
+        if (canRetry) {
+            const delayMs = retryDelayMs(attempt);
+            logger.warn(
+                { keys: normalizedKeys, status: res.status, message, attempt: attempt + 1, delayMs },
+                'Storage delete failed with retryable status; retrying'
+            );
+            await wait(delayMs);
+            continue;
+        }
+
+        logger.error({ keys: normalizedKeys, status: res.status, message, attempt: attempt + 1 }, 'Storage delete failed');
+        throw new Error(`SUPABASE_STORAGE_DELETE_FAILED: ${message}`);
+    }
+
+    throw new Error('SUPABASE_STORAGE_DELETE_FAILED: Unexpected retry loop exit');
 }

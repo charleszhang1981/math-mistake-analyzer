@@ -3,6 +3,7 @@ import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ImageExtractResul
 import {
     generateExtractPrompt,
     generateReasonPrompt,
+    generateReanswerPrompt,
     generateSimilarQuestionPrompt,
 } from './prompts';
 import { safeParseImageExtract, safeParseParsedQuestion, safeParseTextReason } from './schema';
@@ -451,16 +452,10 @@ export class GeminiProvider implements AIService {
         void subject;
         const models = this.getStageModels();
         const limits = this.getTokenLimits();
-        const prefetchedMathTags = await getMathTagsFromDB(null);
-        const prompt = generateReasonPrompt(
+        const prompt = generateReanswerPrompt(
             language,
             questionText,
-            [],
-            null,
-            {
-                customTemplate: getAppConfig().prompts?.analyze,
-                prefetchedMathTags,
-            }
+            subject
         );
 
         try {

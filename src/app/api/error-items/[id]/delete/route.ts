@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
+import { deletePrivateObjects } from "@/lib/supabase-storage";
 
 const logger = createLogger('api:error-items:delete');
 
@@ -44,7 +46,20 @@ export async function DELETE(
             return forbidden("Not authorized to delete this item");
         }
 
-        // Delete the item
+        const storageKeys = Array.from(
+            new Set(
+                [
+                    errorItem.cropImageKey,
+                    errorItem.rawImageKey,
+                    extractStorageKeyFromImageRef(errorItem.originalImageUrl),
+                ].filter((key): key is string => typeof key === "string" && key.trim().length > 0)
+            )
+        );
+
+        if (storageKeys.length > 0) {
+            await deletePrivateObjects({ keys: storageKeys });
+        }
+
         await prisma.errorItem.delete({
             where: { id: id },
         });

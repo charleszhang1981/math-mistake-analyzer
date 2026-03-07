@@ -7,10 +7,27 @@ import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-erro
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { createSignedObjectUrl } from "@/lib/supabase-storage";
-import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
+import {
+    buildStructuredQuestionJson,
+    mergeStructuredQuestionJson,
+    normalizeStructuredQuestionJson,
+} from "@/lib/ai/structured-json";
 import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
 
 const logger = createLogger('api:error-items:id');
+
+function hasStructuredFieldUpdates(payload: Record<string, unknown>) {
+    return (
+        payload.questionText !== undefined ||
+        payload.answerText !== undefined ||
+        payload.solutionFinalAnswer !== undefined ||
+        payload.solutionSteps !== undefined ||
+        payload.mistakeStudentSteps !== undefined ||
+        payload.mistakeWrongStepIndex !== undefined ||
+        payload.mistakeWhyWrong !== undefined ||
+        payload.mistakeFixSuggestion !== undefined
+    );
+}
 
 export async function GET(
     req: Request,
@@ -124,6 +141,12 @@ export async function PUT(
             questionText,
             answerText,
             analysis,
+            solutionFinalAnswer,
+            solutionSteps,
+            mistakeStudentSteps,
+            mistakeWrongStepIndex,
+            mistakeWhyWrong,
+            mistakeFixSuggestion,
             rawImageKey,
             cropImageKey,
             structuredJson,
@@ -152,19 +175,41 @@ export async function PUT(
         if (rawImageKey !== undefined) updateData.rawImageKey = rawImageKey || null;
         if (cropImageKey !== undefined) updateData.cropImageKey = cropImageKey || null;
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson);
+        const existingStructured = normalizeStructuredQuestionJson(errorItem.structuredJson);
         if (normalizedStructuredJson !== null) {
             updateData.structuredJson = normalizedStructuredJson;
         } else if (structuredJson === undefined) {
-            const existingStructured = normalizeStructuredQuestionJson(errorItem.structuredJson);
-            const fallbackStructuredJson = buildStructuredQuestionJson({
-                questionText: questionText !== undefined ? questionText : errorItem.questionText,
-                answerText: answerText !== undefined ? answerText : errorItem.answerText,
-                analysis: analysis !== undefined ? analysis : errorItem.analysis,
-                fontSizeHint: existingStructured?.problem.fontSizeHint,
-            });
+            if (existingStructured) {
+                if (hasStructuredFieldUpdates(body)) {
+                    updateData.structuredJson = mergeStructuredQuestionJson(existingStructured, {
+                        ...(body.questionText !== undefined ? { questionText } : {}),
+                        ...(body.answerText !== undefined ? { answerText } : {}),
+                        ...(body.solutionFinalAnswer !== undefined ? { solutionFinalAnswer } : {}),
+                        ...(body.solutionSteps !== undefined ? { solutionSteps } : {}),
+                        ...(body.mistakeStudentSteps !== undefined ? { mistakeStudentSteps } : {}),
+                        ...(body.mistakeWrongStepIndex !== undefined ? { mistakeWrongStepIndex } : {}),
+                        ...(body.mistakeWhyWrong !== undefined ? { mistakeWhyWrong } : {}),
+                        ...(body.mistakeFixSuggestion !== undefined ? { mistakeFixSuggestion } : {}),
+                        fontSizeHint: existingStructured.problem.fontSizeHint,
+                    });
+                }
+            } else {
+                const fallbackStructuredJson = buildStructuredQuestionJson({
+                    questionText: questionText !== undefined ? questionText : errorItem.questionText,
+                    answerText: answerText !== undefined ? answerText : errorItem.answerText,
+                    analysis: analysis !== undefined ? analysis : errorItem.analysis,
+                    solutionFinalAnswer,
+                    solutionSteps,
+                    mistakeStudentSteps,
+                    mistakeWrongStepIndex,
+                    mistakeWhyWrong,
+                    mistakeFixSuggestion,
+                    fontSizeHint: existingStructured?.problem.fontSizeHint,
+                });
 
-            if (fallbackStructuredJson) {
-                updateData.structuredJson = fallbackStructuredJson;
+                if (fallbackStructuredJson) {
+                    updateData.structuredJson = fallbackStructuredJson;
+                }
             }
         } else if (structuredJson === null) {
             updateData.structuredJson = Prisma.JsonNull;

@@ -1,108 +1,176 @@
-# Codex 任务清单（按优先级）
+# 当前任务状态清单（现状版）
 
-## Milestone 0：Fork & Baseline
-- [ ] fork `wttwins/wrong-notebook`
-- [ ] 本地跑通（按 README）
-- [ ] 识别关键点：
-  - Prisma schema / migrations
-  - 图片上传与存储逻辑
-  - AI 调用入口
-  - “设置页/配置持久化”相关代码位置（重点关注 `config/app-config.json`）
+> 更新时间：2026-03-06
+> 本文不再按“未来里程碑”写，而是按当前仓库实际状态拆成：已完成 / 未完成 / 暂缓。
 
-验收：
-- 本地能登录、能新增/编辑错题（即使先不接 OCR/AI）
+## 1. 已完成
 
----
+### 1.1 基础架构
 
-## Milestone 1：Supabase 一步到位（关键）
-### 1.1 Prisma 切 Postgres（Supabase）
-- [ ] `provider: sqlite` → `postgresql`
-- [ ] 环境变量 `DATABASE_URL` 指向 Supabase
-- [ ] 迁移并验证 CRUD 正常
+- 已从早期底座迁移到 `Next.js + NextAuth + Prisma + PostgreSQL`
+- 已使用 `DATABASE_URL` 指向 Postgres
+- 已具备用户、错题、标签、复习、练习、管理员相关数据模型
 
-### 1.2 Storage：图片/附件全上 Supabase Storage
-- [ ] 创建 bucket（private）
-- [ ] 实现 API：
-  - `POST /api/images/upload`：上传 raw/crop，返回 `{key, signedUrl}`
-  - `GET /api/images/signed?key=...`：返回 signedUrl（可选）
-- [ ] DB 存 `rawImageKey/cropImageKey`（不存本地路径）
+### 1.2 图片与存储
 
-### 1.3 C1：禁用本地 config 持久化
-- [ ] 禁用/移除写 `config/app-config.json` 的逻辑
-- [ ] 只从 env 读取：AI provider key / model / base url（如有）
-- [ ] 隐藏设置页中“在线修改并写文件”的入口（若存在）
+- 已接入 Supabase Storage
+- 已实现私有 bucket 上传
+- 已实现 signed URL 展示
+- 已实现原图与裁剪图双存储
+- 当前图片 key 已按 `raw/`、`crop/`、`answer/` 分类型组织
 
-验收：
-- Render 上 redeploy 不丢数据、不丢图片、不依赖磁盘
+### 1.3 单题裁剪链路
 
----
+- 上传后会进入裁剪弹窗
+- 当前使用 `react-image-crop`
+- 裁剪完成后会上传裁剪图
+- AI 分析实际使用裁剪图，而不是整张原图
 
-## Milestone 2：Step 1 单题裁剪（PC-first）
-- [ ] 上传后进入裁剪页（或弹窗）
-- [ ] 使用 `react-image-crop` 实现：
-  - 默认裁剪框（全图/居中大框）
-  - 拖拽调整
-  - Confirm 后生成裁剪图片（canvas 导出 blob）
-- [ ] 上传裁剪图片到 Storage，写入 `cropImageKey`
+### 1.4 AI 分析主链路
 
-验收：
-- 从整页试卷图，用户 10 秒内裁出“这一道题（含作答过程）”并入库
+- 已实现两阶段视觉 LLM 分析
+- 已支持 Gemini / OpenAI / Azure OpenAI
+- 已实现结构化输出到 `structuredJson v2`
+- 已实现重答 `reanswer`
+- 已实现基于错题上下文生成练习题
 
----
+### 1.5 数学锁定策略
 
-## Milestone 3：纠错链路（先跑通最小闭环）
-> MVP建议先用“视觉 LLM”直接做结构化，减少 OCR 工程量。OCR 可后置。
+- 当前产品主路径锁定数学
+- 错题本 API 只提供 `Math` 错题本
+- 标签体系当前主线按 `math` 组织
+- 错题新增与更新主流程都默认归入数学路径
 
-- [ ] 定义并固化 LLM 输出 schema（见 `01_architecture.md`）
-- [ ] 从 `cropImageKey` 取 signedUrl（或直接传 image bytes）给 LLM
-- [ ] 存 `structuredJson`（题干/学生答案/步骤）
+### 1.6 错题编辑与展示
 
-验收：
-- 能从裁剪图得到可用的结构化结果（哪怕不完美）
+- 已实现错题详情页
+- 已围绕 G/H/I 提供可视化展示与编辑
+- 已实现题号自动生成
+- 已实现分页、筛选、批量删除
 
----
+### 1.7 复习、练习、打印、统计
 
-## Milestone 4：Checker + 错因（可计算题型优先）
-- [ ] 引入 `Math-Verify` 思路（可做成独立 Python service 或 Node/Python 混合方案）
-- [ ] 先覆盖：
-  - 分数运算
-  - 一元一次方程
-  - 简单比例/代数
-- [ ] 输出 `checkerJson`（含 checkable/standard_answer/diff/中间量等）
-- [ ] LLM 基于 checker 生成 `diagnosisJson`（错因候选+证据+追问）
-- [ ] UI：用户确认/编辑错因后保存
+- 已实现基础复习队列
+- 已实现固定调度规则：答对 `+3` 天、答错 `+1` 天
+- 已实现练习题生成与练习记录
+- 已实现打印预览的两种模式
+- 已实现错题统计与练习统计
 
-验收：
-- 对“可计算题型”能稳定判对错，并给出可读的错因候选
+### 1.8 配置策略
 
----
+- 已切换为 env-only 配置
+- `/api/settings` 的写入已禁用
+- 设置页保存按钮实际不可用
+- 已保留 AI 测试接口用于检查 provider 连通性
 
-## Milestone 5：复习（先简单规则，后 FSRS）
-- [ ] 按错因/知识点聚类列表
-- [ ] 复习记录：对/错/备注
-- [ ] 简单间隔规则（MVP）：
-  - 错→+1天；对→+3天（示例）
-- [ ] （升级项）接入 FSRS：保存 fsrs state，自动算下次复习时间
+### 1.9 平台能力
 
----
+- 已支持注册与登录
+- 已支持管理员用户管理
+- 已支持系统重置、标签迁移等后台操作
 
-## Milestone 6：出题 + gating（后续）
-- [ ] LLM 从错因/知识点生成新题（草稿）
-- [ ] Checker 验证“答案可算且一致”
-- [ ] gating：只有可校验且通过的题才展示
+## 2. 未完成
 
----
+### 2.1 checker / diagnosis 正式回归
 
-# 环境变量建议（Render/Supabase）
-- `DATABASE_URL`（Supabase Postgres）
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`（前端可用）
-- `SUPABASE_SERVICE_ROLE_KEY`（仅服务端）
-- `NEXTAUTH_SECRET`
-- `AUTH_TRUST_HOST=true`
-- `NEXTAUTH_URL`（可选）
-- `AI_PROVIDER` / `OPENAI_API_KEY` / `GEMINI_API_KEY` 等（按底座实现）
+当前状态：
 
-# 备注
-- MVP阶段只有 1 个用户也没关系：保留 auth 是为了未来扩展
-- 不做多题自动切分：靠单题裁剪+手动调整保证“可用性”
+- `src/lib/math-checker.ts` 中已有规则引擎与 `checkerJson` / `diagnosisJson` 结构
+- 但错题创建和更新主链路不写入这两个字段
+- 当前详情页和打印主链路也不依赖这两个字段
+
+待完成内容：
+
+- 明确哪些题型进入 deterministic checker
+- 决定何时写库、何时仅作为辅助结果
+- 决定与 `structuredJson v2` 的关系，避免双主数据源
+
+### 2.2 根因对话能力
+
+当前状态：
+
+- `root-cause chat` 的 API 路由明确返回 `410`
+- 当前根因确认采用人工填写 `structuredJson.rootCause.confirmedCause`
+
+待完成内容：
+
+- 是否恢复对话式引导
+- 恢复后如何与手工编辑共存
+- 如何避免自动改写用户最终结论
+
+### 2.3 标签治理
+
+当前状态：
+
+- AI 返回的知识点会关联到 `KnowledgeTag`
+- 缺失标签时允许自动创建用户自定义标签
+- 当前复习页按 tag 分组，但标签命名仍可能分裂
+
+待完成内容：
+
+- canonical tag 体系补齐
+- alias / synonym 归一化
+- prompt 前的候选标签收缩
+
+### 2.4 i18n 收尾
+
+当前状态：
+
+- 项目保留中英双语框架
+- 但部分新页面和文案仍有硬编码中文或历史乱码遗留
+
+待完成内容：
+
+- 文案统一收口
+- 新增页面的语言键补齐
+- 详情页、练习页、标签页等新增区域继续清理
+
+### 2.5 运维与可观测性
+
+当前状态：
+
+- 已有日志与前端错误记录
+- 核心功能可跑通
+
+待完成内容：
+
+- 部署 runbook
+- 环境变量校验清单
+- Storage / AI 调用失败监控
+- 生产 smoke test
+
+## 3. 暂缓
+
+### 3.1 OCR 服务链路
+
+- 当前主链路不依赖 OCR
+- 如要接回，应重新评估收益与维护成本
+
+### 3.2 多学科正式产品化
+
+- 数据模型支持扩展
+- 但当前产品、提示词、标签体系、UI 路径均以数学为主
+- 多学科不应在当前版本被视为正式承诺
+
+### 3.3 FSRS 或更复杂复习算法
+
+- 当前使用固定规则已经可用
+- 更复杂的调度策略暂未进入主链路
+
+### 3.4 更激进的自动切题
+
+- 当前以手工裁剪兜底，优先保证稳定性
+- 自动多题切分不属于当前已承诺能力
+
+## 4. 当前不应再作为“待做主项”的内容
+
+以下能力已经落地，不应再继续写成未来里程碑：
+
+- Postgres / Supabase Storage 接入
+- 单题裁剪
+- 两阶段 AI 分析
+- Math 单错题本锁定
+- 打印预览
+- 基础复习
+- 练习生成
+- env-only 配置

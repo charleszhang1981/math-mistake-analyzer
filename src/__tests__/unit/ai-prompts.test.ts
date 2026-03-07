@@ -90,6 +90,14 @@ describe('AI Prompts', () => {
             expect(prompt).not.toContain('{{tag_list}}');
             expect(prompt).not.toContain('{{provider_hints}}');
         });
+
+        it('应该包含克制版分步解法约束', () => {
+            const prompt = generateAnalyzePrompt('zh');
+            expect(prompt).toContain('<analysis> must stay short: 2-4 sentences only.');
+            expect(prompt).toContain('Usually use 4-6 steps.');
+            expect(prompt).toContain('Avoid outline-only wording.');
+            expect(prompt).toContain('<mistake_student_steps> should be line-by-line likely student work');
+        });
     });
 
     describe('generateSimilarQuestionPrompt', () => {

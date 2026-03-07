@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
@@ -8,6 +8,8 @@ import 'katex/dist/katex.min.css';
 interface MarkdownRendererProps {
     content: string;
     className?: string;
+    compact?: boolean;
+    inlineParagraphs?: boolean;
 }
 
 const MATH_COMMANDS =
@@ -29,7 +31,26 @@ function wrapBareLatexLine(line: string): string {
     return `$${trimmed}$`;
 }
 
-export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+    content,
+    className = '',
+    compact = false,
+    inlineParagraphs = false,
+}: MarkdownRendererProps) {
+    const wrapperClassName = compact
+        ? `markdown-content min-w-0 overflow-visible ${className}`
+        : `markdown-content overflow-x-auto min-w-0 ${className}`;
+    const paragraphClassName = compact
+        ? `${inlineParagraphs ? "m-0 inline leading-snug" : "mb-0 leading-snug"}`
+        : "mb-3 leading-relaxed";
+    const unorderedListClassName = compact
+        ? "list-disc list-inside mb-0 space-y-0.5"
+        : "list-disc list-inside mb-3 space-y-1";
+    const orderedListClassName = compact
+        ? "list-decimal list-inside mb-0 space-y-0.5"
+        : "list-decimal list-inside mb-3 space-y-1";
+    const listItemClassName = compact ? "ml-4 leading-snug" : "ml-4";
+
     const normalizedMathContent = content
         // AI sometimes emits escaped delimiters; normalize so KaTeX can parse.
         .replace(/\\\$/g, "$")
@@ -71,23 +92,23 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
         .replace(/\s*###PRESERVE_BREAK###\s*/g, '\n\n');
 
     return (
-        <div className={`markdown-content overflow-x-auto min-w-0 ${className}`}>
+        <div className={wrapperClassName}>
             <ReactMarkdown
                 remarkPlugins={[remarkMath, remarkGfm]}
                 rehypePlugins={[rehypeKatex]}
                 components={{
                     // 自定义样式
-                    h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mt-6 mb-4" {...props} />,
-                    h2: ({ node, ...props }) => <h2 className="text-xl font-bold mt-5 mb-3" {...props} />,
-                    h3: ({ node, ...props }) => <h3 className="text-lg font-bold mt-4 mb-2" {...props} />,
-                    p: ({ node, ...props }) => <p className="mb-3 leading-relaxed" {...props} />,
-                    ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-3 space-y-1" {...props} />,
-                    ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-3 space-y-1" {...props} />,
-                    li: ({ node, ...props }) => <li className="ml-4" {...props} />,
-                    blockquote: ({ node, ...props }) => (
+                    h1: ({ ...props }) => <h1 className="text-2xl font-bold mt-6 mb-4" {...props} />,
+                    h2: ({ ...props }) => <h2 className="text-xl font-bold mt-5 mb-3" {...props} />,
+                    h3: ({ ...props }) => <h3 className="text-lg font-bold mt-4 mb-2" {...props} />,
+                    p: ({ ...props }) => <p className={paragraphClassName} {...props} />,
+                    ul: ({ ...props }) => <ul className={unorderedListClassName} {...props} />,
+                    ol: ({ ...props }) => <ol className={orderedListClassName} {...props} />,
+                    li: ({ ...props }) => <li className={listItemClassName} {...props} />,
+                    blockquote: ({ ...props }) => (
                         <blockquote className="border-l-4 border-primary pl-4 italic my-4 text-muted-foreground" {...props} />
                     ),
-                    code: ({ node, inline, className, children, ...props }: any) => {
+                    code: ({ inline, children, ...props }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
                         if (inline) {
                             return <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground" {...props}>{children}</code>;
                         }
@@ -97,19 +118,19 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                             </code>
                         );
                     },
-                    table: ({ node, ...props }) => (
+                    table: ({ ...props }) => (
                         <div className="overflow-x-auto my-4">
                             <table className="min-w-full border-collapse border border-border" {...props} />
                         </div>
                     ),
-                    th: ({ node, ...props }) => (
+                    th: ({ ...props }) => (
                         <th className="border border-border px-4 py-2 bg-muted font-semibold text-left" {...props} />
                     ),
-                    td: ({ node, ...props }) => (
+                    td: ({ ...props }) => (
                         <td className="border border-border px-4 py-2" {...props} />
                     ),
-                    strong: ({ node, ...props }) => <strong className="font-bold text-foreground" {...props} />,
-                    em: ({ node, ...props }) => <em className="italic" {...props} />,
+                    strong: ({ ...props }) => <strong className="font-bold text-foreground" {...props} />,
+                    em: ({ ...props }) => <em className="italic" {...props} />,
                 }}
             >
                 {processedContent}

@@ -29,6 +29,10 @@ describe('two-stage prompts', () => {
         expect(prompt).toContain('<solution_steps>');
         expect(prompt).toContain('<mistake_wrong_step_index>');
         expect(prompt).toContain('short teaching summary');
+        expect(prompt).toContain('Usually use 4-6 steps.');
+        expect(prompt).toContain('Avoid outline-only wording.');
+        expect(prompt).toContain('Bad example for <solution_steps>:');
+        expect(prompt).toContain('Good example for <solution_steps>:');
         expect(prompt).toContain('"一元一次方程"');
         expect(prompt).toContain('"移项"');
     });

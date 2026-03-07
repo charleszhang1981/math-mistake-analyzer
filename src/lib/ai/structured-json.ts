@@ -145,6 +145,10 @@ export interface StructuredSource {
     mistakeFixSuggestion?: string | null;
 }
 
+function hasOwn(source: StructuredSource, key: keyof StructuredSource): boolean {
+    return Object.prototype.hasOwnProperty.call(source, key);
+}
+
 function normalizeFontSizeHint(value: unknown): FontSizeHint {
     if (value === "small" || value === "large" || value === "normal") {
         return value;
@@ -236,6 +240,60 @@ export function buildStructuredQuestionJson(source: StructuredSource): Structure
 
     const parsed = StructuredQuestionJsonSchema.safeParse(candidate);
     return parsed.success ? parsed.data : null;
+}
+
+export function mergeStructuredQuestionJson(
+    existing: StructuredQuestionJson,
+    source: StructuredSource
+): StructuredQuestionJson {
+    const nextQuestionText = source.questionText?.trim();
+    const nextAnswerText = source.answerText?.trim();
+    const nextSolutionFinalAnswer = source.solutionFinalAnswer?.trim();
+
+    const mergedCandidate = {
+        ...existing,
+        problem: {
+            ...existing.problem,
+            stage: nextQuestionText ? inferStage(nextQuestionText) : existing.problem.stage,
+            topic: nextQuestionText ? inferTopic(nextQuestionText) : existing.problem.topic,
+            question_markdown: nextQuestionText || existing.problem.question_markdown,
+            ask: nextQuestionText ? inferAsk(nextQuestionText) : existing.problem.ask,
+            fontSizeHint: normalizeFontSizeHint(source.fontSizeHint ?? existing.problem.fontSizeHint),
+        },
+        student: {
+            ...existing.student,
+            final_answer_markdown: nextAnswerText || existing.student.final_answer_markdown,
+        },
+        solution: {
+            ...existing.solution,
+            finalAnswer: hasOwn(source, "solutionFinalAnswer")
+                ? (nextSolutionFinalAnswer || existing.solution.finalAnswer)
+                : hasOwn(source, "answerText")
+                    ? (nextAnswerText || existing.solution.finalAnswer)
+                    : existing.solution.finalAnswer,
+            steps: hasOwn(source, "solutionSteps")
+                ? normalizeStepArray(source.solutionSteps)
+                : existing.solution.steps,
+        },
+        mistake: {
+            ...existing.mistake,
+            studentSteps: hasOwn(source, "mistakeStudentSteps")
+                ? normalizeStepArray(source.mistakeStudentSteps)
+                : existing.mistake.studentSteps,
+            wrongStepIndex: hasOwn(source, "mistakeWrongStepIndex")
+                ? normalizeWrongStepIndex(source.mistakeWrongStepIndex)
+                : existing.mistake.wrongStepIndex,
+            whyWrong: hasOwn(source, "mistakeWhyWrong")
+                ? (source.mistakeWhyWrong?.trim() || "")
+                : existing.mistake.whyWrong,
+            fixSuggestion: hasOwn(source, "mistakeFixSuggestion")
+                ? (source.mistakeFixSuggestion?.trim() || "")
+                : existing.mistake.fixSuggestion,
+        },
+    };
+
+    const parsed = StructuredQuestionJsonSchema.safeParse(mergedCandidate);
+    return parsed.success ? parsed.data : existing;
 }
 
 export function normalizeStructuredQuestionJson(value: unknown): StructuredQuestionJson | null {

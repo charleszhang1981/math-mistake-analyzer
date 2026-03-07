@@ -3,6 +3,7 @@ import { AIService, ParsedQuestion, DifficultyLevel, ImageExtractResult, TextRea
 import {
     generateExtractPrompt,
     generateReasonPrompt,
+    generateReanswerPrompt,
     generateSimilarQuestionPrompt,
 } from './prompts';
 import { safeParseImageExtract, safeParseParsedQuestion, safeParseTextReason } from './schema';
@@ -461,16 +462,10 @@ export class AzureOpenAIProvider implements AIService {
     ): Promise<ReanswerResult> {
         void subject;
         const limits = this.getTokenLimits();
-        const prefetchedMathTags = await getMathTagsFromDB(null);
-        const prompt = generateReasonPrompt(
+        const prompt = generateReanswerPrompt(
             language,
             questionText,
-            [],
-            null,
-            {
-                customTemplate: getAppConfig().prompts?.analyze,
-                prefetchedMathTags,
-            }
+            subject
         );
 
         try {

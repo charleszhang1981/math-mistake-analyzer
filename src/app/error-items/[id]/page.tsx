@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { CompactNumberedSteps } from "@/components/compact-numbered-steps";
 import { TagInput } from "@/components/tag-input";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -116,12 +117,6 @@ function normalizeMathLine(line: string): string {
     return `$${withoutLeftRight.trim()}$`;
 }
 
-function buildSolutionMarkdown(stepsText: string): string {
-    const lines = textToLines(stepsText);
-    if (lines.length === 0) return "";
-    return lines.map((line, index) => `${index + 1}. ${normalizeMathLine(line)}`).join("\n");
-}
-
 function normalizeStepDisplayLine(line: string): string {
     return line
         .trim()
@@ -138,8 +133,10 @@ export default function ErrorDetailPage() {
     const [loading, setLoading] = useState(true);
     const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
     const [isEditingTags, setIsEditingTags] = useState(false);
+    const [isSavingTags, setIsSavingTags] = useState(false);
     const [tagsInput, setTagsInput] = useState<string[]>([]);
     const [isEditingMetadata, setIsEditingMetadata] = useState(false);
+    const [isSavingMetadata, setIsSavingMetadata] = useState(false);
     const [gradeSemesterInput, setGradeSemesterInput] = useState("");
     const [paperLevelInput, setPaperLevelInput] = useState("a");
     const [isEditingRootCause, setIsEditingRootCause] = useState(false);
@@ -154,6 +151,7 @@ export default function ErrorDetailPage() {
     const [mistakeFixSuggestionInput, setMistakeFixSuggestionInput] = useState("");
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
+    const [isSavingQuestion, setIsSavingQuestion] = useState(false);
 
     useEffect(() => {
         // Fetch user info for education stage
@@ -259,9 +257,12 @@ export default function ErrorDetailPage() {
     };
 
     const saveTagsHandler = async () => {
+        if (!item || isSavingTags) return;
+
+        setIsSavingTags(true);
         try {
             // 鐩存帴浼犻€掓爣绛惧悕绉版暟缁勶紝鍚庣浼氬鐞嗗叧鑱?
-            await apiClient.put(`/api/error-items/${item?.id}`, {
+            await apiClient.put(`/api/error-items/${item.id}`, {
                 knowledgePoints: tagsInput, // 鍚庣鎺ユ敹鏁扮粍
             });
 
@@ -271,6 +272,8 @@ export default function ErrorDetailPage() {
         } catch (error) {
             console.error("[Frontend] Error updating:", error);
             alert(t.common?.messages?.updateFailed || 'Update failed');
+        } finally {
+            setIsSavingTags(false);
         }
     };
 
@@ -288,18 +291,29 @@ export default function ErrorDetailPage() {
     };
 
     const saveMetadataHandler = async () => {
+        if (!item || isSavingMetadata) return;
+
+        setIsSavingMetadata(true);
         try {
-            await apiClient.put(`/api/error-items/${item?.id}`, {
+            await apiClient.put(`/api/error-items/${item.id}`, {
                 gradeSemester: gradeSemesterInput,
                 paperLevel: paperLevelInput,
             });
 
+            setItem({
+                ...item,
+                gradeSemester: gradeSemesterInput,
+                paperLevel: paperLevelInput,
+            });
+
+            await fetchItem(item.id);
             setIsEditingMetadata(false);
-            fetchItem(params.id as string);
             alert(t.common?.messages?.metaUpdateSuccess || 'Metadata updated successfully!');
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.updateFailed || 'Update failed');
+        } finally {
+            setIsSavingMetadata(false);
         }
     };
 
@@ -365,14 +379,35 @@ export default function ErrorDetailPage() {
     };
 
     const saveQuestionHandler = async () => {
+        if (!item || isSavingQuestion) return;
+
+        setIsSavingQuestion(true);
         try {
-            await apiClient.put(`/api/error-items/${item?.id}`, { questionText: questionInput });
+            await apiClient.put(`/api/error-items/${item.id}`, { questionText: questionInput });
+
+            const currentStructured = normalizeStructuredQuestionJson(item.structuredJson);
+            setItem({
+                ...item,
+                questionText: questionInput,
+                structuredJson: currentStructured
+                    ? {
+                        ...currentStructured,
+                        problem: {
+                            ...currentStructured.problem,
+                            question_markdown: questionInput,
+                        },
+                    }
+                    : item.structuredJson,
+            });
+
+            await fetchItem(item.id);
             setIsEditingQuestion(false);
-            if (item) setItem({ ...item, questionText: questionInput });
             alert(t.common?.messages?.saveSuccess || 'Saved successfully');
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.saveFailed || 'Save failed');
+        } finally {
+            setIsSavingQuestion(false);
         }
     };
 
@@ -519,8 +554,6 @@ export default function ErrorDetailPage() {
     const mistakeWhyWrong = structured?.mistake.whyWrong || "";
     const mistakeFixSuggestion = structured?.mistake.fixSuggestion || "";
     const confirmedRootCause = structured?.rootCause.confirmedCause?.trim() || "";
-    const detailLabels = t.detail as Record<string, string | undefined>;
-    const notConfirmedText = detailLabels.notConfirmed || "Not confirmed yet";
 
     return (
         <main className="min-h-screen bg-background">
@@ -622,11 +655,11 @@ export default function ErrorDetailPage() {
                                             className="w-full font-mono text-sm"
                                         />
                                         <div className="flex gap-2">
-                                            <Button size="sm" onClick={saveQuestionHandler}>
+                                            <Button size="sm" onClick={saveQuestionHandler} disabled={isSavingQuestion}>
                                                 <Save className="h-4 w-4 mr-1" />
-                                                {t.common?.save || 'Save'}
+                                                {isSavingQuestion ? (t.common?.pleaseWait || "Please wait...") : (t.common?.save || 'Save')}
                                             </Button>
-                                            <Button size="sm" variant="outline" onClick={cancelEditingQuestion}>
+                                            <Button size="sm" variant="outline" onClick={cancelEditingQuestion} disabled={isSavingQuestion}>
                                                 <X className="h-4 w-4 mr-1" />
                                                 {t.common?.cancel || 'Cancel'}
                                             </Button>
@@ -665,11 +698,11 @@ export default function ErrorDetailPage() {
                                                 {t.editor?.tagsHint || 'Select from standard or custom tags'}
                                             </p>
                                             <div className="flex gap-2">
-                                                <Button size="sm" onClick={saveTagsHandler}>
+                                                <Button size="sm" onClick={saveTagsHandler} disabled={isSavingTags}>
                                                     <Save className="h-4 w-4 mr-1" />
-                                                    {t.common?.save || 'Save'}
+                                                    {isSavingTags ? (t.common?.pleaseWait || "Please wait...") : (t.common?.save || 'Save')}
                                                 </Button>
-                                                <Button size="sm" variant="outline" onClick={cancelEditingTags}>
+                                                <Button size="sm" variant="outline" onClick={cancelEditingTags} disabled={isSavingTags}>
                                                     <X className="h-4 w-4 mr-1" />
                                                     {t.common?.cancel || 'Cancel'}
                                                 </Button>
@@ -735,11 +768,11 @@ export default function ErrorDetailPage() {
                                                 </Select>
                                             </div>
                                             <div className="flex gap-2">
-                                                <Button size="sm" onClick={saveMetadataHandler}>
+                                                <Button size="sm" onClick={saveMetadataHandler} disabled={isSavingMetadata}>
                                                     <Save className="h-4 w-4 mr-1" />
-                                                    {t.common?.save || 'Save'}
+                                                    {isSavingMetadata ? (t.common?.pleaseWait || "Please wait...") : (t.common?.save || 'Save')}
                                                 </Button>
-                                                <Button size="sm" variant="outline" onClick={cancelEditingMetadata}>
+                                                <Button size="sm" variant="outline" onClick={cancelEditingMetadata} disabled={isSavingMetadata}>
                                                     <X className="h-4 w-4 mr-1" />
                                                     {t.common?.cancel || 'Cancel'}
                                                 </Button>
@@ -846,7 +879,10 @@ export default function ErrorDetailPage() {
                                                 {t.editor.solutionSteps || "Step-by-Step Solution"}
                                             </h4>
                                             <div className="min-h-[220px] rounded-md border bg-muted/20 p-3">
-                                                <MarkdownRenderer content={buildSolutionMarkdown(solutionStepsText)} />
+                                                <CompactNumberedSteps
+                                                    steps={textToLines(solutionStepsText)}
+                                                    normalizeStep={normalizeMathLine}
+                                                />
                                             </div>
                                         </div>
                                     </>
@@ -930,16 +966,10 @@ export default function ErrorDetailPage() {
                                         <div className="space-y-2">
                                             <h4 className="text-sm font-medium">{t.editor.studentSteps || "Student Steps"}</h4>
                                             <div className="min-h-[140px] rounded-md border bg-muted/20 p-3">
-                                                <div className="space-y-2">
-                                                    {textToLines(mistakeStudentStepsText).map((line, idx) => (
-                                                        <div key={`mistake-step-${idx}`} className="flex items-start gap-2">
-                                                            <span className="w-6 shrink-0 font-medium">{idx + 1}.</span>
-                                                            <div className="min-w-0 flex-1">
-                                                                <MarkdownRenderer content={normalizeMathLine(normalizeStepDisplayLine(line))} />
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                                <CompactNumberedSteps
+                                                    steps={textToLines(mistakeStudentStepsText)}
+                                                    normalizeStep={(line) => normalizeMathLine(normalizeStepDisplayLine(line))}
+                                                />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
@@ -1006,7 +1036,7 @@ export default function ErrorDetailPage() {
                                     </div>
                                 ) : (
                                     <div className="min-h-[90px] rounded-md border bg-muted/20 p-3 text-sm">
-                                        {confirmedRootCause || notConfirmedText}
+                                        {confirmedRootCause}
                                     </div>
                                 )}
                             </CardContent>
