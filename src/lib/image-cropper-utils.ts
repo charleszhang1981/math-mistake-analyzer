@@ -12,6 +12,13 @@ export interface Point2D {
     y: number;
 }
 
+export interface PixelRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 const DEFAULT_CROP_MARGIN_PERCENT = 1;
 const MIN_RECT_PERCENT = 0.5;
 
@@ -79,5 +86,38 @@ export function projectImageRectIntoCrop(crop: Crop, imageRect: PercentRect): Pe
         y: ((intersectionTop - crop.y) / crop.height) * 100,
         width: ((intersectionRight - intersectionLeft) / crop.width) * 100,
         height: ((intersectionBottom - intersectionTop) / crop.height) * 100,
+    };
+}
+
+export function percentCropToPixelRect(crop: Crop, naturalWidth: number, naturalHeight: number): PixelRect {
+    const x = clampPercent(crop.x);
+    const y = clampPercent(crop.y);
+    const width = clampPercent(crop.width);
+    const height = clampPercent(crop.height);
+
+    const left = Math.round((x / 100) * naturalWidth);
+    const top = Math.round((y / 100) * naturalHeight);
+    const right = Math.round(((x + width) / 100) * naturalWidth);
+    const bottom = Math.round(((y + height) / 100) * naturalHeight);
+
+    return {
+        x: left,
+        y: top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+    };
+}
+
+export function percentRectToPixelRect(rect: PercentRect, naturalWidth: number, naturalHeight: number): PixelRect {
+    const left = Math.round((clampPercent(rect.x) / 100) * naturalWidth);
+    const top = Math.round((clampPercent(rect.y) / 100) * naturalHeight);
+    const right = Math.round((clampPercent(rect.x + rect.width) / 100) * naturalWidth);
+    const bottom = Math.round((clampPercent(rect.y + rect.height) / 100) * naturalHeight);
+
+    return {
+        x: left,
+        y: top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
     };
 }

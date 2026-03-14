@@ -4,6 +4,8 @@ import {
     createNearFullCrop,
     mapOverlayRectToImageRect,
     normalizeOverlayRect,
+    percentCropToPixelRect,
+    percentRectToPixelRect,
     projectImageRectIntoCrop,
 } from "@/lib/image-cropper-utils";
 
@@ -67,5 +69,35 @@ describe("image-cropper-utils", () => {
         );
 
         expect(result).toBeNull();
+    });
+
+    it("maps a shallow percent crop directly into natural pixels", () => {
+        const result = percentCropToPixelRect(
+            { unit: "%", x: 10, y: 15, width: 80, height: 8 },
+            3000,
+            4000
+        );
+
+        expect(result).toEqual({
+            x: 300,
+            y: 600,
+            width: 2400,
+            height: 320,
+        });
+    });
+
+    it("maps a percent rect into natural pixels", () => {
+        const result = percentRectToPixelRect(
+            { x: 25, y: 10, width: 50, height: 20 },
+            2000,
+            1000
+        );
+
+        expect(result).toEqual({
+            x: 500,
+            y: 100,
+            width: 1000,
+            height: 200,
+        });
     });
 });
