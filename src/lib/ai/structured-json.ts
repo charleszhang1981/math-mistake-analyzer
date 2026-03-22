@@ -1,9 +1,6 @@
 import { z } from "zod";
 
 const structuredStageValues = ["primary", "junior_high"] as const;
-const fontSizeHintValues = ["small", "normal", "large"] as const;
-const FontSizeHintSchema = z.enum(fontSizeHintValues);
-type FontSizeHint = z.infer<typeof FontSizeHintSchema>;
 
 const StructuredProblemSchema = z.object({
     problem: z.object({
@@ -12,7 +9,6 @@ const StructuredProblemSchema = z.object({
         question_markdown: z.string().min(1),
         given: z.array(z.string()),
         ask: z.string().min(1),
-        fontSizeHint: FontSizeHintSchema.optional().default("normal"),
     }),
 });
 
@@ -136,7 +132,6 @@ export interface StructuredSource {
     questionText?: string | null;
     answerText?: string | null;
     analysis?: string | null;
-    fontSizeHint?: FontSizeHint | null;
     solutionFinalAnswer?: string | null;
     solutionSteps?: string[] | null;
     mistakeStudentSteps?: string[] | null;
@@ -147,13 +142,6 @@ export interface StructuredSource {
 
 function hasOwn(source: StructuredSource, key: keyof StructuredSource): boolean {
     return Object.prototype.hasOwnProperty.call(source, key);
-}
-
-function normalizeFontSizeHint(value: unknown): FontSizeHint {
-    if (value === "small" || value === "large" || value === "normal") {
-        return value;
-    }
-    return "normal";
 }
 
 function toV2StructuredJson(input: {
@@ -211,7 +199,6 @@ export function buildStructuredQuestionJson(source: StructuredSource): Structure
             question_markdown: questionText,
             given: [],
             ask: inferAsk(questionText),
-            fontSizeHint: normalizeFontSizeHint(source.fontSizeHint),
         },
         student: {
             final_answer_markdown: answerText,
@@ -258,7 +245,6 @@ export function mergeStructuredQuestionJson(
             topic: nextQuestionText ? inferTopic(nextQuestionText) : existing.problem.topic,
             question_markdown: nextQuestionText || existing.problem.question_markdown,
             ask: nextQuestionText ? inferAsk(nextQuestionText) : existing.problem.ask,
-            fontSizeHint: normalizeFontSizeHint(source.fontSizeHint ?? existing.problem.fontSizeHint),
         },
         student: {
             ...existing.student,

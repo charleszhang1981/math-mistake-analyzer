@@ -113,7 +113,6 @@ type AzureProviderWithClient = {
 const EXTRACT_XML = `
 <requires_image>false</requires_image>
 <question_text>Solve x + 2 = 5.</question_text>
-<question_font_size_hint>normal</question_font_size_hint>
 <student_steps_raw>x + 2 = 5
 x = 3</student_steps_raw>
 `.trim();

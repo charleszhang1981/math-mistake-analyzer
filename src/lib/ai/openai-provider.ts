@@ -158,25 +158,15 @@ export class OpenAIProvider implements AIService {
             .slice(0, 5);
     }
 
-    private parseFontSizeHint(raw: string | null): 'small' | 'normal' | 'large' {
-        const value = raw?.trim().toLowerCase();
-        if (value === 'small' || value === 'large' || value === 'normal') {
-            return value;
-        }
-        return 'normal';
-    }
-
     private parseExtractResponse(text: string): ImageExtractResult {
         const questionText = this.extractTag(text, "question_text");
         const requiresImageRaw = this.extractTag(text, "requires_image");
-        const fontSizeHintRaw = this.extractTag(text, "question_font_size_hint");
         const studentStepsRaw = this.extractTag(text, "student_steps_raw");
 
         const candidate: ImageExtractResult = {
             subject: '数学',
             questionText: questionText || '',
             requiresImage: requiresImageRaw?.toLowerCase().trim() === 'true',
-            fontSizeHint: this.parseFontSizeHint(fontSizeHintRaw),
             studentStepsRaw: this.parseStepList(studentStepsRaw),
         };
 
@@ -234,7 +224,6 @@ export class OpenAIProvider implements AIService {
             subject: '数学',
             knowledgePoints,
             requiresImage,
-            fontSizeHint: this.parseFontSizeHint(this.extractTag(text, "question_font_size_hint")),
             solutionFinalAnswer: this.extractTag(text, "solution_final_answer") || undefined,
             solutionSteps: this.parseStepList(this.extractTag(text, "solution_steps")),
             mistakeStudentSteps: this.parseStepList(this.extractTag(text, "mistake_student_steps")),
@@ -380,7 +369,6 @@ export class OpenAIProvider implements AIService {
             subject: '数学',
             knowledgePoints: reason.knowledgePoints,
             requiresImage: extract.requiresImage,
-            fontSizeHint: extract.fontSizeHint,
             solutionFinalAnswer: reason.solutionFinalAnswer,
             solutionSteps: reason.solutionSteps,
             mistakeStudentSteps: reason.mistakeStudentSteps?.length

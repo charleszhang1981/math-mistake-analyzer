@@ -16,7 +16,6 @@ describe('two-stage schema', () => {
         }
 
         expect(result.data.subject).toBe('数学');
-        expect(result.data.fontSizeHint).toBe('normal');
         expect(result.data.studentStepsRaw).toHaveLength(3);
     });
 

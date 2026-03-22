@@ -12,6 +12,7 @@ import {
     mergeStructuredQuestionJson,
     normalizeStructuredQuestionJson,
 } from "@/lib/ai/structured-json";
+import { normalizePrintImageScale } from "@/lib/print-image-scale";
 import { extractStorageKeyFromImageRef } from "@/lib/storage-key";
 
 const logger = createLogger('api:error-items:id');
@@ -150,6 +151,7 @@ export async function PUT(
             rawImageKey,
             cropImageKey,
             structuredJson,
+            printImageScale,
         } = body;
 
         const errorItem = await prisma.errorItem.findUnique({
@@ -174,6 +176,9 @@ export async function PUT(
         if (analysis !== undefined) updateData.analysis = analysis;
         if (rawImageKey !== undefined) updateData.rawImageKey = rawImageKey || null;
         if (cropImageKey !== undefined) updateData.cropImageKey = cropImageKey || null;
+        if (printImageScale !== undefined) {
+            updateData.printImageScale = normalizePrintImageScale(printImageScale);
+        }
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson);
         const existingStructured = normalizeStructuredQuestionJson(errorItem.structuredJson);
         if (normalizedStructuredJson !== null) {
@@ -190,10 +195,9 @@ export async function PUT(
                         ...(body.mistakeWrongStepIndex !== undefined ? { mistakeWrongStepIndex } : {}),
                         ...(body.mistakeWhyWrong !== undefined ? { mistakeWhyWrong } : {}),
                         ...(body.mistakeFixSuggestion !== undefined ? { mistakeFixSuggestion } : {}),
-                        fontSizeHint: existingStructured.problem.fontSizeHint,
                     });
                 }
-            } else {
+            } else if (hasStructuredFieldUpdates(body)) {
                 const fallbackStructuredJson = buildStructuredQuestionJson({
                     questionText: questionText !== undefined ? questionText : errorItem.questionText,
                     answerText: answerText !== undefined ? answerText : errorItem.answerText,
@@ -204,7 +208,6 @@ export async function PUT(
                     mistakeWrongStepIndex,
                     mistakeWhyWrong,
                     mistakeFixSuggestion,
-                    fontSizeHint: existingStructured?.problem.fontSizeHint,
                 });
 
                 if (fallbackStructuredJson) {

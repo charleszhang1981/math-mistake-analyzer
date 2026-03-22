@@ -13,7 +13,6 @@ function makeStructured(studentSteps: string[], whyWrong = "旧 why", fixSuggest
             question_markdown: "Q",
             given: [],
             ask: "Q",
-            fontSizeHint: "normal",
         },
         student: {
             final_answer_markdown: "A",

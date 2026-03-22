@@ -6,8 +6,6 @@ const SubjectSchema = z.enum([
     "政治", "其他",
 ]);
 
-const FontSizeHintSchema = z.enum(["small", "normal", "large"]);
-
 /**
  * Stage 1 output: vision extraction only.
  * Subject is locked to math by product policy.
@@ -16,7 +14,6 @@ export const ImageExtractSchema = z.object({
     subject: z.literal("数学").default("数学"),
     requiresImage: z.boolean().optional().default(false),
     questionText: z.string().min(1, "questionText cannot be empty"),
-    fontSizeHint: FontSizeHintSchema.optional().default("normal"),
     studentStepsRaw: z.array(z.string().min(1)).optional().default([]),
 });
 
@@ -45,7 +42,6 @@ export const ParsedQuestionSchema = z.object({
     subject: SubjectSchema,
     knowledgePoints: z.array(z.string()).max(5, "knowledgePoints max length is 5"),
     requiresImage: z.boolean().optional().default(false),
-    fontSizeHint: FontSizeHintSchema.optional().default("normal"),
     solutionFinalAnswer: z.string().optional(),
     solutionSteps: z.array(z.string()).optional(),
     mistakeStudentSteps: z.array(z.string()).optional(),

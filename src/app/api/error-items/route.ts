@@ -9,6 +9,7 @@ import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { buildStructuredQuestionJson, normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
 import { generateNextQuestionNo } from "@/lib/question-no";
+import { normalizePrintImageScale } from "@/lib/print-image-scale";
 
 const logger = createLogger('api:error-items');
 const MATH_NOTEBOOK_NAME = "Math";
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
             structuredJson,
             gradeSemester,
             paperLevel,
+            printImageScale,
         } = body;
 
         // 记录请求参数（不记录完整图片数据）
@@ -83,6 +85,7 @@ export async function POST(req: Request) {
             cropImageKey,
             gradeSemester,
             paperLevel,
+            printImageScale,
         }, 'Request parameters received');
 
         // 查找用户
@@ -194,6 +197,7 @@ export async function POST(req: Request) {
         }
 
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
+        const normalizedPrintImageScale = normalizePrintImageScale(printImageScale);
         const normalizedStructuredJson = normalizeStructuredQuestionJson(structuredJson)
             ?? buildStructuredQuestionJson({
                 questionText,
@@ -228,6 +232,7 @@ export async function POST(req: Request) {
                             structuredJson: normalizedStructuredJson ?? undefined,
                             gradeSemester: finalGradeSemester,
                             paperLevel: paperLevel,
+                            printImageScale: normalizedPrintImageScale ?? undefined,
                             masteryLevel: 0,
                             tags: {
                                 connect: tagConnections,

@@ -116,6 +116,7 @@ describe("/api/error-items", () => {
             originalImageUrl: "storage:raw/test.jpg",
             rawImageKey: "raw/test.jpg",
             cropImageKey: null,
+            printImageScale: 95,
             structuredJson: null,
             masteryLevel: 0,
             tags: [],
@@ -131,6 +132,7 @@ describe("/api/error-items", () => {
                 knowledgePoints: ["equation"],
                 originalImageUrl: "storage:raw/test.jpg",
                 rawImageKey: "raw/test.jpg",
+                printImageScale: 95,
             }),
         });
 
@@ -138,6 +140,7 @@ describe("/api/error-items", () => {
         expect(response.status).toBe(201);
 
         const createArg = mocks.mockPrismaErrorItem.create.mock.calls[0][0];
+        expect(createArg.data.printImageScale).toBe(95);
         expect(createArg.data.structuredJson).toBeDefined();
         expect(createArg.data.checkerJson).toBeUndefined();
         expect(createArg.data.diagnosisJson).toBeUndefined();
@@ -268,6 +271,40 @@ describe("/api/error-items", () => {
         expect(updateArg.data.diagnosisJson).toBeUndefined();
     });
 
+    it("PUT updates printImageScale without touching structured fields", async () => {
+        const existing = {
+            id: "item-scale",
+            userId: user.id,
+            questionText: "Old question",
+            answerText: "Old answer",
+            analysis: "Old analysis",
+            gradeSemester: "Grade 7, Semester 1",
+            structuredJson: null,
+            subject: mathNotebook,
+        };
+
+        mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existing);
+        mocks.mockPrismaErrorItem.update.mockResolvedValue({
+            ...existing,
+            printImageScale: 105,
+        });
+
+        const request = new Request("http://localhost/api/error-items/item-scale", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                printImageScale: 105,
+            }),
+        });
+
+        const response = await PUT(request, { params: Promise.resolve({ id: "item-scale" }) });
+        expect(response.status).toBe(200);
+
+        const updateArg = mocks.mockPrismaErrorItem.update.mock.calls.at(-1)?.[0];
+        expect(updateArg.data.printImageScale).toBe(105);
+        expect(updateArg.data.structuredJson).toBeUndefined();
+    });
+
     it("PUT fallback preserves rich G/H fields when structuredJson is omitted", async () => {
         const existing = {
             id: "item-rich-put",
@@ -385,7 +422,6 @@ describe("/api/error-items", () => {
                 question_markdown: "Original question",
                 given: [],
                 ask: "Original ask",
-                fontSizeHint: "normal",
             },
             student: {
                 final_answer_markdown: "27/20",
@@ -452,7 +488,6 @@ describe("/api/error-items", () => {
                 question_markdown: "Old question",
                 given: [],
                 ask: "Old question",
-                fontSizeHint: "large",
             },
             student: {
                 final_answer_markdown: "27/20",

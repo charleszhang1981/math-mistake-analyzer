@@ -159,8 +159,7 @@
     "topic": "string",
     "question_markdown": "string",
     "given": ["string"],
-    "ask": "string",
-    "fontSizeHint": "small | normal | large"
+    "ask": "string"
   },
   "student": {
     "final_answer_markdown": "string",
@@ -200,7 +199,6 @@
 
 - 题目元信息
 - `question_markdown` 是主题干文本
-- `fontSizeHint` 主要用于打印和显示布局
 
 #### `student`
 

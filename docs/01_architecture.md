@@ -86,7 +86,6 @@
    - 主要输出字段：
      - `questionText`
      - `requiresImage`
-     - `fontSizeHint`
      - `studentStepsRaw`
 
 2. **Stage 2 Reason**

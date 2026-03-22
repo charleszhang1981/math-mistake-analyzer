@@ -9,6 +9,12 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { apiClient } from "@/lib/api-client";
 import { normalizeStructuredQuestionJson } from "@/lib/ai/structured-json";
 import { PRINT_PREVIEW_PAGE_SIZE } from "@/lib/constants/pagination";
+import {
+    PRINT_IMAGE_SCALE_MAX,
+    PRINT_IMAGE_SCALE_MIN,
+    PRINT_IMAGE_SCALE_STEP,
+    resolvePrintImageScale,
+} from "@/lib/print-image-scale";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ErrorItem, PaginatedResponse } from "@/types/api";
 import {
@@ -20,7 +26,7 @@ import {
     isLikelyMobilePdfExport,
     MOBILE_EXPORT_A4_WIDTH_PX,
 } from "@/lib/print-pdf";
-import { Loader2 } from "lucide-react";
+import { Loader2, Minus, Plus } from "lucide-react";
 
 type PrintMode = "review" | "redo";
 type PrintRenderLayout = "screen" | "mobile-export";
@@ -56,9 +62,18 @@ interface PrintItemsProps {
     printMode: PrintMode;
     layout: PrintRenderLayout;
     t: PrintPreviewText;
+    savingScaleIds?: Record<string, boolean>;
+    onAdjustPrintImageScale?: (item: ErrorItem, delta: number) => void;
 }
 
-function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
+function PrintItems({
+    items,
+    printMode,
+    layout,
+    t,
+    savingScaleIds = {},
+    onAdjustPrintImageScale,
+}: PrintItemsProps) {
     const isExportLayout = layout === "mobile-export";
 
     const itemWrapperClass = isExportLayout
@@ -94,12 +109,9 @@ function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
                 const solutionSteps = structured?.solution.steps || [];
                 const whyWrong = structured?.mistake.whyWrong?.trim() || "";
                 const confirmedCause = structured?.rootCause.confirmedCause?.trim() || "";
-                const fontSizeHint = structured?.problem.fontSizeHint || "normal";
-                const originalImageWidthClass = fontSizeHint === "large"
-                    ? "w-[60%]"
-                    : fontSizeHint === "small"
-                        ? "w-[90%]"
-                        : "w-[80%]";
+                const currentImageScale = resolvePrintImageScale(item.printImageScale);
+                const isSavingScale = !!savingScaleIds[item.id];
+                const showScaleControls = !isExportLayout && !!item.originalImageUrl && !!onAdjustPrintImageScale;
 
                 return (
                     <div key={item.id} className={itemWrapperClass} data-print-item="true">
@@ -125,12 +137,12 @@ function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
                         {printMode === "review" ? (
                             <div className={reviewGridClass}>
                                 <section className={reviewSectionClass}>
-                                    <h3 className="mb-2 text-base font-semibold leading-tight">原题</h3>
                                     {item.originalImageUrl ? (
                                         <img
                                             src={item.originalImageUrl}
                                             alt={t.detail?.originalProblem || "原题"}
-                                            className={`h-auto ${originalImageWidthClass} max-w-full rounded border object-contain`}
+                                            className="h-auto max-w-full rounded border object-contain"
+                                            style={{ width: `${currentImageScale}%` }}
                                         />
                                     ) : item.questionText ? (
                                         <MarkdownRenderer content={item.questionText} />
@@ -146,10 +158,42 @@ function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
                                             </div>
                                         </div>
                                     )}
+
+                                    {showScaleControls && (
+                                        <div className="mt-3 flex justify-end print:hidden">
+                                            <div className="inline-flex items-center gap-1 rounded-md border bg-background/95 px-1.5 py-1 shadow-sm">
+                                                <Button
+                                                    type="button"
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="h-7 w-7"
+                                                    disabled={isSavingScale || currentImageScale <= PRINT_IMAGE_SCALE_MIN}
+                                                    onClick={() => onAdjustPrintImageScale?.(item, -PRINT_IMAGE_SCALE_STEP)}
+                                                >
+                                                    <Minus className="h-3.5 w-3.5" />
+                                                </Button>
+                                                <span className="min-w-11 text-center text-xs font-medium tabular-nums">
+                                                    {currentImageScale}%
+                                                </span>
+                                                {isSavingScale && (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                                )}
+                                                <Button
+                                                    type="button"
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="h-7 w-7"
+                                                    disabled={isSavingScale || currentImageScale >= PRINT_IMAGE_SCALE_MAX}
+                                                    onClick={() => onAdjustPrintImageScale?.(item, PRINT_IMAGE_SCALE_STEP)}
+                                                >
+                                                    <Plus className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </section>
 
                                 <section className={reviewSectionClass}>
-                                    <h3 className="mb-2 text-base font-semibold leading-tight">标准解法</h3>
                                     <div className="space-y-2">
                                         <div>
                                             <div className="inline-field">
@@ -162,7 +206,6 @@ function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
                                             </div>
                                         </div>
                                         <div>
-                                            <div className="mb-1 text-sm font-medium text-muted-foreground">分步解法</div>
                                             {solutionSteps.length > 0 ? (
                                                 <CompactNumberedSteps
                                                     steps={solutionSteps}
@@ -195,17 +238,50 @@ function PrintItems({ items, printMode, layout, t }: PrintItemsProps) {
                         ) : (
                             <div className={redoGridClass}>
                                 <section className={redoQuestionSectionClass}>
-                                    <h3 className="mb-3 font-semibold">原题</h3>
                                     {item.originalImageUrl ? (
                                         <img
                                             src={item.originalImageUrl}
                                             alt={t.detail?.originalProblem || "原题"}
-                                            className={`h-auto ${originalImageWidthClass} max-w-full rounded border object-contain`}
+                                            className="h-auto max-w-full rounded border object-contain"
+                                            style={{ width: `${currentImageScale}%` }}
                                         />
                                     ) : item.questionText ? (
                                         <MarkdownRenderer content={item.questionText} />
                                     ) : (
                                         <div className="min-h-[320px] rounded border border-dashed bg-muted/20" />
+                                    )}
+
+                                    {showScaleControls && (
+                                        <div className="mt-3 flex justify-end print:hidden">
+                                            <div className="inline-flex items-center gap-1 rounded-md border bg-background/95 px-1.5 py-1 shadow-sm">
+                                                <Button
+                                                    type="button"
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="h-7 w-7"
+                                                    disabled={isSavingScale || currentImageScale <= PRINT_IMAGE_SCALE_MIN}
+                                                    onClick={() => onAdjustPrintImageScale?.(item, -PRINT_IMAGE_SCALE_STEP)}
+                                                >
+                                                    <Minus className="h-3.5 w-3.5" />
+                                                </Button>
+                                                <span className="min-w-11 text-center text-xs font-medium tabular-nums">
+                                                    {currentImageScale}%
+                                                </span>
+                                                {isSavingScale && (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                                )}
+                                                <Button
+                                                    type="button"
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="h-7 w-7"
+                                                    disabled={isSavingScale || currentImageScale >= PRINT_IMAGE_SCALE_MAX}
+                                                    onClick={() => onAdjustPrintImageScale?.(item, PRINT_IMAGE_SCALE_STEP)}
+                                                >
+                                                    <Plus className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
+                                        </div>
                                     )}
                                 </section>
 
@@ -230,6 +306,7 @@ function PrintPreviewContent() {
     const [printMode, setPrintMode] = useState<PrintMode>("review");
     const [isMobileExportMode, setIsMobileExportMode] = useState(false);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
+    const [savingScaleIds, setSavingScaleIds] = useState<Record<string, boolean>>({});
     const printContentRef = useRef<HTMLDivElement>(null);
     const mobileExportContentRef = useRef<HTMLDivElement>(null);
 
@@ -260,6 +337,56 @@ function PrintPreviewContent() {
     useEffect(() => {
         fetchItems();
     }, [fetchItems]);
+
+    const handleAdjustPrintImageScale = useCallback(async (item: ErrorItem, delta: number) => {
+        const currentScale = resolvePrintImageScale(item.printImageScale);
+        const nextScale = Math.max(
+            PRINT_IMAGE_SCALE_MIN,
+            Math.min(PRINT_IMAGE_SCALE_MAX, currentScale + delta)
+        );
+
+        if (nextScale === currentScale || savingScaleIds[item.id]) {
+            return;
+        }
+
+        setItems((currentItems) =>
+            currentItems.map((currentItem) =>
+                currentItem.id === item.id
+                    ? { ...currentItem, printImageScale: nextScale }
+                    : currentItem
+            )
+        );
+        setSavingScaleIds((current) => ({ ...current, [item.id]: true }));
+
+        try {
+            const updated = await apiClient.put<ErrorItem>(`/api/error-items/${item.id}`, {
+                printImageScale: nextScale,
+            });
+            setItems((currentItems) =>
+                currentItems.map((currentItem) =>
+                    currentItem.id === item.id
+                        ? { ...currentItem, printImageScale: updated.printImageScale ?? nextScale }
+                        : currentItem
+                )
+            );
+        } catch (error) {
+            console.error(error);
+            setItems((currentItems) =>
+                currentItems.map((currentItem) =>
+                    currentItem.id === item.id
+                        ? { ...currentItem, printImageScale: item.printImageScale ?? null }
+                        : currentItem
+                )
+            );
+            alert("图片比例保存失败，请稍后重试。");
+        } finally {
+            setSavingScaleIds((current) => {
+                const next = { ...current };
+                delete next[item.id];
+                return next;
+            });
+        }
+    }, [savingScaleIds]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -522,7 +649,14 @@ function PrintPreviewContent() {
                 data-print-capture-root="true"
                 className="max-w-[1400px] mx-auto p-8 print:p-0 print:max-w-none print-sheet"
             >
-                <PrintItems items={items} printMode={printMode} layout="screen" t={t} />
+                <PrintItems
+                    items={items}
+                    printMode={printMode}
+                    layout="screen"
+                    t={t}
+                    savingScaleIds={savingScaleIds}
+                    onAdjustPrintImageScale={handleAdjustPrintImageScale}
+                />
             </div>
 
             {isMobileExportMode && (

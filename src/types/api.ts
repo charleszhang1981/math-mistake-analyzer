@@ -66,6 +66,7 @@ export interface ErrorItem {
     errorType?: string | null;
     userNotes?: string | null;
     tags?: Tag[];
+    printImageScale?: number | null;
 
     masteryLevel: number;
     gradeSemester?: string | null;
@@ -100,6 +101,7 @@ export interface CreateErrorItemRequest extends ParsedQuestion {
     rawImageKey?: string;
     cropImageKey?: string;
     structuredJson?: StructuredQuestionJson | null;
+    printImageScale?: number | null;
     checkerJson?: unknown;
     diagnosisJson?: unknown;
     subjectId?: string;
