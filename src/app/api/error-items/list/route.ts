@@ -40,12 +40,17 @@ export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
     const { searchParams } = new URL(req.url);
     const includeSignedImage = searchParams.get("includeSignedImage") === "1";
+    const sort = searchParams.get("sort");
 
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const pageSize = Math.min(
         MAX_PAGE_SIZE,
         Math.max(MIN_PAGE_SIZE, parseInt(searchParams.get("pageSize") || String(DEFAULT_PAGE_SIZE), 10))
     );
+    const orderBy =
+        sort === "createdAtAsc"
+            ? { createdAt: "asc" as const }
+            : { createdAt: "desc" as const };
 
     try {
         let user;
@@ -87,7 +92,7 @@ export async function GET(req: Request) {
 
         const errorItems = await prisma.errorItem.findMany({
             where: whereClause,
-            orderBy: { createdAt: "desc" },
+            orderBy,
             include: {
                 subject: true,
                 tags: true,

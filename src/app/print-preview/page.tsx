@@ -77,8 +77,8 @@ function PrintItems({
     const isExportLayout = layout === "mobile-export";
 
     const itemWrapperClass = isExportLayout
-        ? "mb-2 break-inside-avoid border-b pb-2 last:border-b-0"
-        : "mb-2 border-b pb-2 last:border-b-0 print:mb-1 print:break-inside-avoid print:pb-1";
+        ? "mb-2 break-inside-avoid border-b-2 border-slate-400 pb-2 last:border-b-0"
+        : "mb-2 border-b-2 border-slate-300 pb-2 last:border-b-0 print:mb-1 print:break-inside-avoid print:border-slate-500 print:pb-1";
     const reviewGridClass = isExportLayout
         ? "grid gap-4 grid-cols-[50%_50%]"
         : "grid gap-4 md:grid-cols-[50%_50%] print:grid-cols-[50%_50%]";
@@ -322,6 +322,7 @@ function PrintPreviewContent() {
             const params = new URLSearchParams(searchParams.toString());
             params.set("pageSize", String(PRINT_PREVIEW_PAGE_SIZE));
             params.set("includeSignedImage", "1");
+            params.set("sort", "createdAtAsc");
 
             const response = await apiClient.get<PaginatedResponse<ErrorItem>>(
                 `/api/error-items/list?${params.toString()}`

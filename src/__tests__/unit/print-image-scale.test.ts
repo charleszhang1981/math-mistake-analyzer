@@ -7,10 +7,11 @@ import {
 } from "@/lib/print-image-scale";
 
 describe("print-image-scale", () => {
-    it("falls back to the fixed default scale when no persisted value exists", () => {
-        expect(resolvePrintImageScale(null)).toBe(DEFAULT_PRINT_IMAGE_SCALE);
-        expect(resolvePrintImageScale(undefined)).toBe(DEFAULT_PRINT_IMAGE_SCALE);
-        expect(resolvePrintImageScale("")).toBe(DEFAULT_PRINT_IMAGE_SCALE);
+    it("falls back to 100 when no persisted value exists", () => {
+        expect(DEFAULT_PRINT_IMAGE_SCALE).toBe(100);
+        expect(resolvePrintImageScale(null)).toBe(100);
+        expect(resolvePrintImageScale(undefined)).toBe(100);
+        expect(resolvePrintImageScale("")).toBe(100);
     });
 
     it("uses the persisted scale when present", () => {
