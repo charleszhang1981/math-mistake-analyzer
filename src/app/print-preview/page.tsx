@@ -66,6 +66,70 @@ interface PrintItemsProps {
     onAdjustPrintImageScale?: (item: ErrorItem, delta: number) => void;
 }
 
+interface PrintReviewAnswerPanelProps {
+    reviewSectionClass: string;
+    solutionFinalAnswer: string;
+    solutionSteps: string[];
+    confirmedCause: string;
+    hidden?: boolean;
+}
+
+function PrintReviewAnswerPanel({
+    reviewSectionClass,
+    solutionFinalAnswer,
+    solutionSteps,
+    confirmedCause,
+    hidden = false,
+}: PrintReviewAnswerPanelProps) {
+    const contentClassName = hidden ? "invisible pointer-events-none select-none" : undefined;
+
+    return (
+        <section className={reviewSectionClass}>
+            <div className={contentClassName} aria-hidden={hidden || undefined}>
+                <div className="space-y-2">
+                    <div>
+                        <div className="inline-field">
+                            <span className="inline-field-label text-muted-foreground">标准答案：</span>
+                            {solutionFinalAnswer ? (
+                                <MarkdownRenderer content={solutionFinalAnswer} className="inline-field-content" />
+                            ) : (
+                                <span className="text-sm text-muted-foreground">暂无</span>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        {solutionSteps.length > 0 ? (
+                            <CompactNumberedSteps
+                                steps={solutionSteps}
+                                normalizeStep={normalizeStepLine}
+                                className="text-sm"
+                                itemClassName="gap-1.5 leading-tight"
+                                markerClassName="w-5"
+                            />
+                        ) : (
+                            <div className="text-sm text-muted-foreground">暂无</div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-2 border-t pt-2">
+                    {confirmedCause ? (
+                        <div className="inline-field">
+                            <span className="inline-field-label">根因：</span>
+                            <MarkdownRenderer content={confirmedCause} className="inline-field-content" />
+                        </div>
+                    ) : (
+                        <div className="inline-field">
+                            <span className="inline-field-label">根因：</span>
+                            <span className="text-sm text-muted-foreground">暂无</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </section>
+    );
+}
+
 function PrintItems({
     items,
     printMode,
@@ -83,8 +147,8 @@ function PrintItems({
         ? "grid gap-4 grid-cols-[50%_50%]"
         : "grid gap-4 md:grid-cols-[50%_50%] print:grid-cols-[50%_50%]";
     const redoGridClass = isExportLayout
-        ? "grid gap-4 grid-cols-[40%_60%]"
-        : "grid gap-4 md:grid-cols-[40%_60%] print:grid-cols-[40%_60%]";
+        ? "grid gap-4 grid-cols-[50%_50%]"
+        : "grid gap-4 md:grid-cols-[50%_50%] print:grid-cols-[50%_50%]";
     const reviewSectionClass = isExportLayout
         ? "h-full rounded-md border p-2"
         : "h-full rounded-md border p-2.5 print:p-2";
@@ -193,47 +257,12 @@ function PrintItems({
                                     )}
                                 </section>
 
-                                <section className={reviewSectionClass}>
-                                    <div className="space-y-2">
-                                        <div>
-                                            <div className="inline-field">
-                                                <span className="inline-field-label text-muted-foreground">标准答案：</span>
-                                                {solutionFinalAnswer ? (
-                                                    <MarkdownRenderer content={solutionFinalAnswer} className="inline-field-content" />
-                                                ) : (
-                                                    <span className="text-sm text-muted-foreground">暂无</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            {solutionSteps.length > 0 ? (
-                                                <CompactNumberedSteps
-                                                    steps={solutionSteps}
-                                                    normalizeStep={normalizeStepLine}
-                                                    className="text-sm"
-                                                    itemClassName="gap-1.5 leading-tight"
-                                                    markerClassName="w-5"
-                                                />
-                                            ) : (
-                                                <div className="text-sm text-muted-foreground">暂无</div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-2 border-t pt-2">
-                                        {confirmedCause ? (
-                                            <div className="inline-field">
-                                                <span className="inline-field-label">根因：</span>
-                                                <MarkdownRenderer content={confirmedCause} className="inline-field-content" />
-                                            </div>
-                                        ) : (
-                                            <div className="inline-field">
-                                                <span className="inline-field-label">根因：</span>
-                                                <span className="text-sm text-muted-foreground">暂无</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </section>
+                                <PrintReviewAnswerPanel
+                                    reviewSectionClass={reviewSectionClass}
+                                    solutionFinalAnswer={solutionFinalAnswer}
+                                    solutionSteps={solutionSteps}
+                                    confirmedCause={confirmedCause}
+                                />
                             </div>
                         ) : (
                             <div className={redoGridClass}>
@@ -285,7 +314,13 @@ function PrintItems({
                                     )}
                                 </section>
 
-                                <section className="min-h-[360px] rounded-md border bg-white" />
+                                <PrintReviewAnswerPanel
+                                    reviewSectionClass={reviewSectionClass}
+                                    solutionFinalAnswer={solutionFinalAnswer}
+                                    solutionSteps={solutionSteps}
+                                    confirmedCause={confirmedCause}
+                                    hidden
+                                />
                             </div>
                         )}
                     </div>
